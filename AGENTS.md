@@ -40,6 +40,8 @@
 
 - Inspect the repository and existing changes before editing. Preserve work that
   is unrelated to the task.
+- Do not add agent attribution to commits, pull requests, or project content,
+  including co-author trailers or generated-by notices.
 - Test meaningful behavior: input validation, plan construction, existing-state
   handling, and command failures. Mock commands that install software or modify
   system configuration; do not provision the developer's machine during tests.
