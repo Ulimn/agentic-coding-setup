@@ -64,7 +64,8 @@ generation, installation, and authentication are not implemented yet.
 - Validation: ten unit tests cover input validation, checkbox navigation and
   toggling, cancellation, and summary behavior. An interactive terminal run was
   also checked on macOS; Linux VM verification is still pending.
-- The README currently remains limited to the project title and intent.
+- The README includes usage, Ubuntu prerequisites (`python3` and `python3-venv`),
+  virtual environment installation, and SSH terminal allocation instructions.
 
 ## High-level implementation plan
 
