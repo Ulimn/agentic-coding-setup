@@ -13,7 +13,7 @@ On Ubuntu, install Python and virtual environment support first:
 
 ```sh
 sudo apt update
-sudo apt install python3 python3-venv
+sudo apt install python3 python3-venv git openssh-client
 ```
 
 Create a virtual environment, install dependencies, and start the questionnaire:
@@ -28,8 +28,21 @@ Enter your Git name and email, choose whether to generate an Ed25519 SSH key,
 then select tools. Use **Up/Down** to move, **Space** to toggle checkboxes, and
 **Enter** to continue. **Ctrl+C** cancels.
 
-The current version collects answers and shows a summary. It does not yet
-configure Git, generate SSH keys, or install tools.
+Review the setup plan and confirm to apply it. Git name and email are configured
+globally for the current VM user. Existing values are shown before confirmation;
+unrelated Git settings are preserved, and matching values are skipped on reruns.
+
+If selected, an Ed25519 SSH key is generated at `~/.ssh/id_ed25519`.
+`ssh-keygen` asks for a passphrase and confirmation; press Enter twice to use no
+passphrase. The script displays the public key so you can add it to your Git
+hosting accounts. It does not store or log the passphrase.
+
+If either `~/.ssh/id_ed25519` or `~/.ssh/id_ed25519.pub` already exists, key
+generation is skipped without overwriting files. Partial failures leave completed
+steps in place; resolve the reported error and rerun.
+
+Tool installation and account login are not implemented yet. Selected tools are
+listed as pending. Run the script as your normal VM user, without `sudo`.
 
 For remote execution, allocate a terminal:
 

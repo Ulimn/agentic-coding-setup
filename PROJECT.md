@@ -41,8 +41,31 @@ The tool list displays `[ ]` and `[x]` checkboxes. Arrow keys move the cursor,
 Space toggles the highlighted option, and Enter submits. Selecting no tools is
 allowed. Display a summary after collecting the answers.
 
-This round only collects preferences in memory. Git configuration, SSH key
-generation, installation, and authentication are not implemented yet.
+The questionnaire collects preferences in memory. Git configuration and SSH key
+generation are now implemented; installation and authentication remain pending.
+
+## Git and SSH setup
+
+- Show existing global Git identity values and the proposed changes before
+  asking for confirmation. The confirmation defaults to no.
+- Configure `user.name` and `user.email` globally for the current VM user.
+  Preserve unrelated Git settings, skip matching values, and verify each change.
+- If requested, generate an Ed25519 SSH key at `~/.ssh/id_ed25519` with the
+  supplied email as its comment.
+- Let `ssh-keygen` prompt directly for a passphrase and confirmation. Empty
+  passphrases are allowed; the script never receives, stores, or logs them.
+- Skip generation if either the private or public key path already exists,
+  including dangling symlinks. Generate in a temporary private directory and
+  publish using exclusive hard links so concurrent files cannot be overwritten.
+- Verify the generated public key and show its fingerprint and public contents
+  for manual registration with Git hosting accounts.
+- Create new SSH directories with mode 700, private keys with mode 600, and
+  public keys with mode 644. Existing directory permissions are left unchanged.
+- Require Git and, when generating a new key, OpenSSH's `ssh-keygen` before
+  applying changes. On Ubuntu these are provided by `git` and `openssh-client`.
+- Report failures and interruptions honestly: completed changes may remain.
+  Reruns skip satisfied steps; no rollback of completed configuration is attempted.
+- Tool selections remain visible as pending; no tools are installed in this round.
 
 ## Current implementation and runtime
 
@@ -60,12 +83,19 @@ generation, installation, and authentication are not implemented yet.
   .venv/bin/python setup_vm.py
   ```
 
-- Ctrl+C and end-of-input cancel without applying changes or printing a traceback.
-- Validation: ten unit tests cover input validation, checkbox navigation and
-  toggling, cancellation, and summary behavior. An interactive terminal run was
-  also checked on macOS; Linux VM verification is still pending.
-- The README includes usage, Ubuntu prerequisites (`python3` and `python3-venv`),
-  virtual environment installation, and SSH terminal allocation instructions.
+- Ctrl+C and end-of-input cancel without a traceback. Before applying the plan,
+  cancellation makes no changes; during execution, completed steps may remain.
+- Validation covers input validation, checkbox navigation, cancellation,
+  confirmation, Git writes and verification, reruns, and SSH key preservation,
+  generation, permissions, and failures. Git tests use an isolated temporary
+  config file; SSH commands are mocked and operate on temporary test fixtures.
+  An interactive questionnaire run was checked on macOS. The user confirmed a
+  successful questionnaire run on an Ubuntu VM,
+  including Git identity input, opting into SSH key generation, selecting
+  multiple tools, and displaying the summary. The Ubuntu version was not specified.
+  The new Git/SSH setup still needs verification on the user's Ubuntu VM.
+- The README includes usage, Ubuntu prerequisites, virtual environment
+  installation, SSH terminal allocation, and Git/SSH setup behavior.
 
 ## High-level implementation plan
 
@@ -115,8 +145,6 @@ The following are not yet specified:
 - Installation methods and authentication needs for the selected tools.
 - Exact Antigravity-CLI project and its official installation source.
 - Which VS Code server product is intended, and how it will run and be accessed.
-- Git configuration scope: global or repository-local.
-- SSH key path, passphrase handling, and behavior when a key already exists.
 
 Resolve these when implementing the relevant feature and record the decisions
 here. Document supported behavior and usage in the README.
