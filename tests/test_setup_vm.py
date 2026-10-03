@@ -60,7 +60,7 @@ class QuestionnaireTests(unittest.TestCase):
     def test_summary_distinguishes_choices_from_performed_setup(self):
         summary = setup_vm.format_summary(setup_vm.SetupAnswers("Alice", "a@b", True, ()))
         self.assertIn("Generate Ed25519 SSH key: Yes", summary)
-        self.assertIn("Selected tools (installation not implemented yet):\n  None", summary)
+        self.assertIn("Selected tools:\n  None", summary)
 
     def test_main_cancels_without_traceback_or_summary(self):
         for error in (KeyboardInterrupt, EOFError):

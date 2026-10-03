@@ -41,8 +41,9 @@ The tool list displays `[ ]` and `[x]` checkboxes. Arrow keys move the cursor,
 Space toggles the highlighted option, and Enter submits. Selecting no tools is
 allowed. Display a summary after collecting the answers.
 
-The questionnaire collects preferences in memory. Git configuration and SSH key
-generation are now implemented; installation and authentication remain pending.
+The questionnaire collects preferences in memory. Git configuration, SSH key
+generation, and selected tool installation are implemented. Authentication and
+VS Code server startup remain manual.
 
 ## Git and SSH setup
 
@@ -65,14 +66,47 @@ generation are now implemented; installation and authentication remain pending.
   applying changes. On Ubuntu these are provided by `git` and `openssh-client`.
 - Report failures and interruptions honestly: completed changes may remain.
   Reruns skip satisfied steps; no rollback of completed configuration is attempted.
-- Tool selections remain visible as pending; no tools are installed in this round.
+
+## Tool installation
+
+- Initial installer target: Ubuntu 22.04+ on x86_64 or aarch64. No tools are
+  installed on the developer's machine as part of development or testing.
+- Prepare downloads and check prerequisites before showing the setup plan.
+  Do not change Git configuration or generate keys if tool preparation fails.
+- Install selected tools for the current VM user, without sudo. Show sources
+  and installation scope before confirmation. Native installer scripts are
+  downloaded into temporary files and executed as subprocess argument lists.
+- Use the official native installers for Codex, Claude Code (stable channel),
+  and Google's Antigravity CLI (`agy`). Codex runs its installer without
+  interactive launch prompts; account login is never started by setup.
+- Install GitHub CLI (`gh`), GitLab CLI (`glab`), and the forgejo-contrib Forgejo
+  client (`fj`) from upstream release archives into `~/.local/bin`.
+- The VS Code option prepares Microsoft's standalone `code` CLI. The user runs
+  `code tunnel --disable-telemetry` to accept the server license, sign in, and
+  download and start the server. Setup creates no running server or service.
+- Fetch release metadata and checksums over HTTPS. Verify GitHub CLI, GitLab
+  CLI, and Microsoft archives against upstream SHA-256 checksums. Native
+  installers perform their own payload verification. Forgejo's current release
+  publishes no checksum; its archive is downloaded directly from Codeberg over
+  HTTPS and its executable is verified with `--version`.
+- Copy only the intended regular executable from release archives; do not
+  extract arbitrary archive paths or symlinks. Publish with exclusive hard
+  links so concurrent files are not overwritten.
+- Find existing installations on PATH and in `~/.local/bin`; verify them and
+  skip reinstalls. Report broken existing files rather than overwriting them.
+- Verify new installations with `--version`. Stop on errors, preserve completed
+  work, and provide recovery guidance. Reruns skip satisfied steps.
+- Print the PATH command and manual login/startup commands at the end. No
+  credentials are collected. Native installers may manage their own shell
+  integration; the Python script does not rewrite shell profiles.
+- Official source links and supported commands are listed in the README.
 
 ## Current implementation and runtime
 
 - Entry point: `setup_vm.py`.
-- Initial runtime target: an interactive Linux VM terminal with Python 3.10+.
-  The questionnaire can also run on macOS; installers will need an explicit
-  supported Linux distribution before implementation.
+- Runtime target: an interactive Ubuntu 22.04+ VM terminal with Python 3.10+.
+  The questionnaire and Git/SSH setup can also run on macOS when no tools are
+  selected; tool installation explicitly requires Ubuntu on a supported CPU.
 - Dependency: `prompt_toolkit`, declared in `requirements.txt`, for terminal
   input, validation, and keyboard navigation.
 - Run locally in the target VM:
@@ -85,7 +119,7 @@ generation are now implemented; installation and authentication remain pending.
 
 - Ctrl+C and end-of-input cancel without a traceback. Before applying the plan,
   cancellation makes no changes; during execution, completed steps may remain.
-- Validation covers input validation, checkbox navigation, cancellation,
+- Validation: 36 tests cover input validation, checkbox navigation, cancellation,
   confirmation, Git writes and verification, reruns, and SSH key preservation,
   generation, permissions, and failures. Git tests use an isolated temporary
   config file; SSH commands are mocked and operate on temporary test fixtures.
@@ -93,7 +127,17 @@ generation are now implemented; installation and authentication remain pending.
   successful questionnaire run on an Ubuntu VM,
   including Git identity input, opting into SSH key generation, selecting
   multiple tools, and displaying the summary. The Ubuntu version was not specified.
-  The new Git/SSH setup still needs verification on the user's Ubuntu VM.
+  The user also confirmed successful Git/SSH setup on that VM: global Git name
+  and email were configured and verified, and an Ed25519 key was generated,
+  verified, and published at the intended path with its public key displayed.
+  Existing-key preservation and reruns remain covered by automated tests;
+  they have not yet been confirmed on the user's VM. Installer tests mock
+  network and installer execution, and cover checksum failures, architecture
+  selection, safe archive handling, existing commands, and verification failures.
+  A read-only live check successfully resolved the Microsoft, GitHub, GitLab,
+  and Forgejo download plans and available checksum manifests. Official native
+  installer scripts were downloaded and reviewed without executing them.
+  End-to-end installation still needs testing on the user's Ubuntu VM.
 - The README includes usage, Ubuntu prerequisites, virtual environment
   installation, SSH terminal allocation, and Git/SSH setup behavior.
 
@@ -139,12 +183,11 @@ generation are now implemented; installation and authentication remain pending.
 
 ## Open decisions
 
-The following are not yet specified:
+The following remain for future iterations:
 
-- Supported Linux distribution and installer prerequisites.
-- Installation methods and authentication needs for the selected tools.
-- Exact Antigravity-CLI project and its official installation source.
-- Which VS Code server product is intended, and how it will run and be accessed.
+- Optional automated or guided account login.
+- Optional persistent VS Code server operation after manual authentication.
+- Additional distributions, architectures, or alternative server products.
 
 Resolve these when implementing the relevant feature and record the decisions
 here. Document supported behavior and usage in the README.

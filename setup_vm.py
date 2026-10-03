@@ -9,6 +9,8 @@ import subprocess
 import sys
 import tempfile
 
+from tool_installers import InstallerError, ToolPlan, describe_tool, install_tools, prepare_tools
+
 try:
     from prompt_toolkit import prompt
     from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
@@ -42,6 +44,7 @@ class SetupPlan:
     previous_name: tuple[str, ...]
     previous_email: tuple[str, ...]
     key_path: Path | None
+    tools: tuple[ToolPlan, ...] = ()
 
 
 class SetupError(Exception):
@@ -149,7 +152,7 @@ def format_summary(answers: SetupAnswers) -> str:
         f"Git user name: {answers.git_name}",
         f"Git user email: {answers.git_email}",
         f"Generate Ed25519 SSH key: {'Yes' if answers.generate_ssh_key else 'No'}",
-        "Selected tools (installation not implemented yet):",
+        "Selected tools:",
     ]
     lines.extend(f"  - {tool}" for tool in answers.tools)
     if not answers.tools:
@@ -187,6 +190,7 @@ def build_plan(answers: SetupAnswers) -> SetupPlan:
         require_program("ssh-keygen")
     return SetupPlan(
         answers, read_git_values("user.name"), read_git_values("user.email"), key_path,
+        prepare_tools(answers.tools),
     )
 
 
@@ -206,6 +210,7 @@ def format_plan(plan: SetupPlan) -> str:
     else:
         lines.append(f"  Generate Ed25519 SSH key: {plan.key_path}")
         lines.append("  ssh-keygen will ask for a passphrase and confirmation (Enter allows no passphrase).")
+    lines.extend(describe_tool(tool) for tool in plan.tools)
     return "\n".join(lines)
 
 
@@ -272,22 +277,22 @@ def apply_setup(plan: SetupPlan) -> None:
         generate_ssh_key(plan.key_path, plan.answers.git_email)
     else:
         print("Skipped: SSH key generation was not selected.")
-    for tool in plan.answers.tools:
-        print(f"Pending: {tool} installation is not implemented yet.")
-    print("\nGit/SSH setup complete. Tool installation and account login remain manual.")
+    install_tools(plan.tools)
+    print("\nSetup complete. Account login remains manual.")
 
 
 def main() -> int:
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         print("Run this script in an interactive terminal (use ssh -t for remote sessions).", file=sys.stderr)
         return 1
-    print("Agentic Coding VM Setup\nConfigure Git and an optional SSH key for this VM user.\n")
+    print("Agentic Coding VM Setup\nConfigure Git, an optional SSH key, and selected tools for this VM user.\n")
     execution_started = False
     try:
         answers = collect_answers()
+        print("\nChecking prerequisites and preparing the setup plan...")
         plan = build_plan(answers)
         print(format_plan(plan))
-        if not ask_yes_no("Apply this Git/SSH setup plan?"):
+        if not ask_yes_no("Apply this setup plan?"):
             print("\nSetup cancelled. No changes were made.")
             return 0
         execution_started = True
@@ -298,7 +303,7 @@ def main() -> int:
         else:
             print("\nSetup cancelled. No changes were made.")
         return 0
-    except (SetupError, OSError) as error:
+    except (SetupError, InstallerError, OSError) as error:
         print(f"\nSetup failed: {error}", file=sys.stderr)
         if execution_started:
             print("Completed changes may remain. Resolve the error and rerun to resume.", file=sys.stderr)
