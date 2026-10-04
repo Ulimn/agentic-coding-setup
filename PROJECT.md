@@ -297,7 +297,9 @@ VS Code server startup remain manual.
   cannot guarantee staying within an account's allowance across other workflows.
 - Validation: Pylint 4.1.2 and all 75 tests pass locally on Python 3.10.21 and
   3.14.7. Actionlint 1.7.12 accepts the workflow and git diff passes whitespace
-  checks. The workflow has not yet been published or run on GitHub.
+  checks. The workflow is published in PR #3. Its first GitHub-hosted run passed
+  both Pylint and all 75 tests on Python 3.10 and 3.14 using Ubuntu 24.04 runners;
+  the jobs completed in 13 and 19 seconds respectively.
 
 ## High-level implementation plan
 
