@@ -95,17 +95,17 @@ def select_tools() -> tuple[str, ...]:
         return lines
 
     @bindings.add("up")
-    def move_up(event: KeyPressEvent) -> None:
+    def move_up(_event: KeyPressEvent) -> None:
         nonlocal cursor
         cursor = (cursor - 1) % len(TOOLS)
 
     @bindings.add("down")
-    def move_down(event: KeyPressEvent) -> None:
+    def move_down(_event: KeyPressEvent) -> None:
         nonlocal cursor
         cursor = (cursor + 1) % len(TOOLS)
 
     @bindings.add(" ")
-    def toggle(event: KeyPressEvent) -> None:
+    def toggle(_event: KeyPressEvent) -> None:
         tool = TOOLS[cursor]
         if tool in selected:
             selected.remove(tool)
@@ -125,7 +125,7 @@ def select_tools() -> tuple[str, ...]:
         event.app.exit(exception=EOFError)
 
     @bindings.add("<any>")
-    def ignore_typing(event: KeyPressEvent) -> None:
+    def ignore_typing(_event: KeyPressEvent) -> None:
         pass
 
     return prompt(menu, key_bindings=bindings)
@@ -175,6 +175,7 @@ def read_git_values(key: str) -> tuple[str, ...]:
     result = subprocess.run(
         ["git", "config", "--global", "--includes", "--get-all", key],
         capture_output=True, text=True,
+        check=False,
     )
     if result.returncode == 1:
         return ()
@@ -228,6 +229,7 @@ def configure_git(answers: SetupAnswers) -> None:
         result = subprocess.run(
             ["git", "config", "--global", "--replace-all", "--", key, desired],
             capture_output=True, text=True,
+            check=False,
         )
         if result.returncode != 0:
             raise SetupError(f"Could not configure global Git {key}: {result.stderr.strip()}")
@@ -249,15 +251,16 @@ def generate_ssh_key(path: Path, email: str) -> None:
         print("Choose an SSH key passphrase below; input is hidden and not stored by this script.")
         result = subprocess.run([
             "ssh-keygen", "-t", "ed25519", "-C", email, "-f", str(temporary_key),
-        ])
+        ], check=False)
         if result.returncode != 0:
             raise SetupError("SSH key generation failed. Check the ssh-keygen message above and rerun.")
         public_path = Path(f"{temporary_key}.pub")
-        public_key = public_path.read_text().strip()
+        public_key = public_path.read_text(encoding="utf-8").strip()
         if not public_key.startswith("ssh-ed25519 "):
             raise SetupError("Generated public key is not Ed25519; no key was published.")
         verification = subprocess.run(
             ["ssh-keygen", "-l", "-f", str(public_path)], capture_output=True, text=True,
+            check=False,
         )
         if verification.returncode != 0:
             raise SetupError("Generated SSH key verification failed; no key was published.")

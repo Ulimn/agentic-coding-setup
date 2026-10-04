@@ -274,6 +274,31 @@ VS Code server startup remain manual.
   A blank line now separates the accepted setup confirmation from execution
   output. Upstream installer output remains visible for troubleshooting.
 
+## Continuous integration
+
+- GitHub Actions workflow: `.github/workflows/python-checks.yml`. Run on pull
+  requests, pushes to main, and manual dispatch; use standard Ubuntu 24.04
+  runners with Python 3.10 (minimum supported) and 3.14. The Ubuntu 26.04.1
+  container remains the separate manual integration target.
+- Run Pylint over all three application modules and the test directory, then
+  all 75 unittest tests. Run tests even if lint fails. Pylint errors and warnings
+  fail the job; convention and refactoring messages are deliberately outside
+  this initial gate. Store configuration in pyproject.toml and declare the
+  pinned Pylint dependency in requirements-dev.txt, including runtime requirements.
+- Fix existing lint warnings with explicit subprocess exit-code handling,
+  UTF-8 text-file encoding, unused callback argument names and import cleanup.
+  Provisioning subprocesses and downloads remain mocked in automated tests.
+- Keep repository permissions read-only, disable checkout credential persistence,
+  pin official actions to commit IDs, cap jobs at ten minutes, and cancel older
+  runs for the same PR/ref. No artifacts, persistent caches, paid runners or
+  real installer executions are part of CI.
+- This repository is public: standard GitHub-hosted runners are free. GitHub
+  Free private repositories instead share 2,000 minutes per month; this pipeline
+  cannot guarantee staying within an account's allowance across other workflows.
+- Validation: Pylint 4.1.2 and all 75 tests pass locally on Python 3.10.21 and
+  3.14.7. Actionlint 1.7.12 accepts the workflow and git diff passes whitespace
+  checks. The workflow has not yet been published or run on GitHub.
+
 ## High-level implementation plan
 
 1. Inspect the environment and check prerequisites before making changes.

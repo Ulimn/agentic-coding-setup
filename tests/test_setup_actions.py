@@ -39,7 +39,7 @@ class SetupActionTests(unittest.TestCase):
     def test_git_configuration_in_isolated_file_preserves_other_settings_and_reruns(self):
         # Real Git operates only on this temporary file, never the user's config.
         config = self.home / "gitconfig"
-        config.write_text('[user]\n\tname = Old Name\n\temail = old@example.com\n[core]\n\teditor = nano\n')
+        config.write_text('[user]\n\tname = Old Name\n\temail = old@example.com\n[core]\n\teditor = nano\n', encoding="utf-8")
         with patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(config)}):
             setup_vm.configure_git(ANSWERS)
             self.assertEqual(setup_vm.read_git_values("user.name"), (ANSWERS.git_name,))
@@ -59,16 +59,16 @@ class SetupActionTests(unittest.TestCase):
 
     def test_git_included_settings_are_preserved_and_effective_identity_is_verified(self):
         included = self.home / "included-config"
-        included.write_text('[user]\n\tname = Included Name\n\temail = included@example.com\n')
+        included.write_text('[user]\n\tname = Included Name\n\temail = included@example.com\n', encoding="utf-8")
         config = self.home / "gitconfig"
-        config.write_text(f'[include]\n\tpath = {included}\n[user]\n\tname = Old Name\n')
+        config.write_text(f'[include]\n\tpath = {included}\n[user]\n\tname = Old Name\n', encoding="utf-8")
         with patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(config)}):
             setup_vm.configure_git(ANSWERS)
             self.assertEqual(setup_vm.read_git_values("user.name")[-1], ANSWERS.git_name)
             original = config.read_bytes()
             setup_vm.configure_git(ANSWERS)
             self.assertEqual(config.read_bytes(), original)
-        self.assertIn("Included Name", included.read_text())
+        self.assertIn("Included Name", included.read_text(encoding="utf-8"))
 
     def test_failed_git_verification_is_not_success(self):
         with patch.object(setup_vm, "read_git_values", return_value=("different",)):
@@ -84,22 +84,22 @@ class SetupActionTests(unittest.TestCase):
             if kind == "symlink":
                 target.symlink_to(self.home / "missing")
             else:
-                target.write_text("existing key")
+                target.write_text("existing key", encoding="utf-8")
             try:
                 with self.subTest(kind=kind), patch.object(setup_vm.subprocess, "run") as run:
                     setup_vm.generate_ssh_key(self.key, ANSWERS.git_email)
                     run.assert_not_called()
                     self.assertTrue(os.path.lexists(target))
                     if kind != "symlink":
-                        self.assertEqual(target.read_text(), "existing key")
+                        self.assertEqual(target.read_text(encoding="utf-8"), "existing key")
             finally:
                 target.unlink()
 
-    def fake_keygen(self, command, **kwargs):
+    def fake_keygen(self, command, **_kwargs):
         if "-t" in command:
             key = Path(command[command.index("-f") + 1])
-            key.write_text("test private key fixture")
-            Path(f"{key}.pub").write_text("ssh-ed25519 TEST_PUBLIC_KEY vm@example.com\n")
+            key.write_text("test private key fixture", encoding="utf-8")
+            Path(f"{key}.pub").write_text("ssh-ed25519 TEST_PUBLIC_KEY vm@example.com\n", encoding="utf-8")
             return subprocess.CompletedProcess(command, 0)
         return subprocess.CompletedProcess(command, 0, "256 SHA256:test vm@example.com (ED25519)\n", "")
 
@@ -141,14 +141,14 @@ class SetupActionTests(unittest.TestCase):
         def competing_keygen(command, **kwargs):
             result = self.fake_keygen(command, **kwargs)
             if "-t" in command:
-                self.key.write_text("another process's key")
+                self.key.write_text("another process's key", encoding="utf-8")
             return result
 
         with patch.object(setup_vm, "require_program"):
             with patch.object(setup_vm.subprocess, "run", side_effect=competing_keygen):
                 with self.assertRaisesRegex(setup_vm.SetupError, "Nothing was overwritten"):
                     setup_vm.generate_ssh_key(self.key, ANSWERS.git_email)
-        self.assertEqual(self.key.read_text(), "another process's key")
+        self.assertEqual(self.key.read_text(encoding="utf-8"), "another process's key")
 
     def test_declining_confirmation_performs_no_setup(self):
         plan = setup_vm.SetupPlan(ANSWERS, (), (), self.key)
