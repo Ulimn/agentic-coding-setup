@@ -12,6 +12,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import zlib
@@ -37,7 +38,7 @@ class ToolPlan:
 
 
 NATIVE_INSTALLERS = {
-    "Codex": ("codex", "https://chatgpt.com/codex/install.sh", "sh", "codex login --device-auth"),
+    "Codex": ("codex", "https://chatgpt.com/codex/install.sh", "sh", "codex (choose Sign in with Device Code)"),
     "Claude Code": ("claude", "https://claude.ai/install.sh", "bash", "claude"),
     "Antigravity-CLI": ("agy", "https://antigravity.google/cli/install.sh", "bash", "agy"),
 }
@@ -289,7 +290,11 @@ def install_tools(plans: tuple[ToolPlan, ...]) -> None:
         for plan in plans:
             print(f"  {plan.name}: {plan.login}")
         if any(plan.name == "Codex" for plan in plans):
-            print("\nBefore starting Codex on this VM, run: codex login --device-auth")
+            heading = "Codex login on this VM"
+            if sys.stdout.isatty():
+                heading = f"\033[1;31m{heading}\033[0m"
+            print(f"\n{heading}")
             print("Enable device code login in ChatGPT security settings (or workspace permissions).")
+            print("Then run codex and choose Sign in with Device Code in the initial login menu.")
             print("Open the printed link in your browser and enter the one-time code; no localhost callback is needed.")
             print("If device code login is unavailable, see README.md for SSH callback port forwarding.")

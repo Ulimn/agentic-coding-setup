@@ -29,6 +29,10 @@ Enter your Git name and email, choose whether to generate an Ed25519 SSH key,
 then select tools. Use **Up/Down** to move, **Space** to toggle checkboxes, and
 **Enter** to continue. **Ctrl+C** cancels.
 
+If your global Git name or email is already set, setup keeps it, skips that
+question, and prints a message showing the reused value. It asks only for
+missing or blank values, including when just one of the two is configured.
+
 Review the setup plan and confirm to apply it. Git name and email are configured
 globally for the current VM user. Existing values are shown before confirmation;
 unrelated Git settings are preserved, and matching values are skipped on reruns.
@@ -52,7 +56,7 @@ failure stops subsequent steps, and rerunning resumes from existing installation
 | Selection | Command | Installation source | Manual login or startup |
 | --- | --- | --- | --- |
 | Visual Studio Code Server | `code` | [Microsoft standalone CLI](https://code.visualstudio.com/docs/remote/tunnels) | `code tunnel --disable-telemetry` |
-| Codex | `codex` | [Official native installer](https://learn.chatgpt.com/docs/codex/cli) | `codex login --device-auth` |
+| Codex | `codex` | [Official native installer](https://learn.chatgpt.com/docs/codex/cli) | `codex`, then choose device code sign-in |
 | Claude Code | `claude` | [Official native installer, stable channel](https://code.claude.com/docs/en/setup) | `claude` |
 | Antigravity-CLI | `agy` | [Google's official native installer](https://www.antigravity.google/docs/cli/install/) | `agy` |
 | GitHub CLI | `gh` | [Official GitHub releases](https://github.com/cli/cli/releases) | `gh auth login` |
@@ -78,17 +82,21 @@ manual for all tools.
 
 ## Codex login on a remote VM
 
-Before starting Codex for the first time, sign in from the VM terminal using
-your ChatGPT subscription account:
+Enable device code login in ChatGPT's security settings first (a workspace
+administrator may need to enable it in workspace permissions). Then start
+Codex from the VM terminal:
 
 ```sh
-codex login --device-auth
+codex
 ```
 
-Open the printed link in your local browser and enter the one-time code. For a
-personal account, enable device code login in ChatGPT's security settings first;
-for a workspace account, an administrator may need to enable it in workspace
-permissions. This flow does not require a callback to your VM.
+In the initial login menu, choose **Sign in with Device Code**. Open the printed
+link in your local browser and enter the one-time code to sign in with your
+ChatGPT subscription account. This route has been confirmed working on the
+user's VM and does not require a callback to the VM.
+
+OpenAI also documents `codex login --device-auth` as a direct way to start the
+same flow. If that command fails, use the initial login menu as described above.
 
 The regular browser login uses a localhost callback. Opening that link in a
 browser on your computer sends the callback to your computer's loopback address,

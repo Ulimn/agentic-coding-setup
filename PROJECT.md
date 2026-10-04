@@ -24,8 +24,9 @@ remain small and understandable, with room to add setup tasks as needed.
 
 Ask these questions in order:
 
-1. Git user name (required text).
-2. Git user email (required text with basic format validation).
+1. Git user name (required text only when missing or blank globally).
+2. Git user email (required text with basic format validation only when missing
+   or blank globally).
 3. Whether to generate an Ed25519 SSH key (yes/no, default no).
 4. Which tools to install (multi-select, initially all unchecked):
 
@@ -40,6 +41,11 @@ Ask these questions in order:
 The tool list displays `[ ]` and `[x]` checkboxes. Arrow keys move the cursor,
 Space toggles the highlighted option, and Enter submits. Selecting no tools is
 allowed. Display a summary after collecting the answers.
+
+Read the effective global Git identity, including included config files, before
+each identity question. Keep any nonblank configured value, skip its question,
+and print a message identifying the value being reused. Handle name and email
+independently and use the last configured value when multiple values exist.
 
 The questionnaire collects preferences in memory. Git configuration, SSH key
 generation, and selected tool installation are implemented. Authentication and
@@ -99,11 +105,14 @@ VS Code server startup remain manual.
 - Print the PATH command and manual login/startup commands at the end. No
   credentials are collected. Native installers may manage their own shell
   integration; the Python script does not rewrite shell profiles.
-- For Codex on a remote VM, prominently recommend `codex login --device-auth`
-  before starting the interactive agent. Explain the account/workspace setting
+- For Codex on a remote VM, prominently recommend starting `codex` and choosing
+  device code sign-in in its initial login menu. Keep the officially documented
+  `codex login --device-auth` command as an alternative. Explain the account/workspace setting
   for device code login and the browser code flow. Document SSH forwarding of
   the localhost callback as a fallback for Codex running directly in a VM.
   Authentication remains manual; setup does not initiate account login.
+  Give these instructions a separate bold red terminal heading so users can
+  easily spot them; use plain text when output is redirected.
 - Official source links and supported commands are listed in the README.
 
 ## Current implementation and runtime
@@ -124,8 +133,9 @@ VS Code server startup remain manual.
 
 - Ctrl+C and end-of-input cancel without a traceback. Before applying the plan,
   cancellation makes no changes; during execution, completed steps may remain.
-- Validation: 41 tests cover input validation, checkbox navigation, cancellation,
+- Validation: 45 tests cover input validation, checkbox navigation, cancellation,
   confirmation, Git writes and verification, reruns, and SSH key preservation,
+  reuse of complete or partial Git identities, blank values and read failures,
   generation, permissions, and failures. Git tests use an isolated temporary
   config file; SSH commands are mocked and operate on temporary test fixtures.
   An interactive questionnaire run was checked on macOS. The user confirmed a
@@ -183,6 +193,12 @@ VS Code server startup remain manual.
   so the remote checkout may have contained the old `--version` verification.
   These changes are included in this update. The exact user error and tested
   revision are pending; this report is not yet diagnosed.
+- The user subsequently confirmed successful Codex subscription login through
+  the initial device code menu after enabling device code authentication in
+  settings. Their report mentions `claude login --device-auth` as failing;
+  whether this was a typo for `codex` is unconfirmed. The README and setup
+  output now lead with the successful menu route. No failure cause for the
+  direct command has been established.
 
 ## High-level implementation plan
 

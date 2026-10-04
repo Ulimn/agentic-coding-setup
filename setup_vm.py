@@ -130,20 +130,23 @@ def select_tools() -> tuple[str, ...]:
 
 
 def collect_answers() -> SetupAnswers:
-    git_name = prompt(
-        "Git user name: ",
-        validator=Validator.from_callable(
-            valid_name, error_message="Enter a non-empty name without control characters."
-        ),
-    ).strip()
-    git_email = prompt(
-        "Git user email: ",
-        validator=Validator.from_callable(
-            valid_email, error_message="Enter an email address, for example name@example.com."
-        ),
-    ).strip()
+    require_program("git")
+    identity: dict[str, str] = {}
+    for key, label, validation, error_message in (
+        ("user.name", "Git user name", valid_name, "Enter a non-empty name without control characters."),
+        ("user.email", "Git user email", valid_email, "Enter an email address, for example name@example.com."),
+    ):
+        previous = read_git_values(key)
+        if previous and previous[-1].strip():
+            identity[key] = previous[-1]
+            print(f"Skipped: global Git {key} is already set to {previous[-1]!r}; keeping it.")
+        else:
+            identity[key] = prompt(
+                f"{label}: ",
+                validator=Validator.from_callable(validation, error_message=error_message),
+            ).strip()
     generate_key = ask_yes_no("Generate an Ed25519 SSH key?")
-    return SetupAnswers(git_name, git_email, generate_key, select_tools())
+    return SetupAnswers(identity["user.name"], identity["user.email"], generate_key, select_tools())
 
 
 def format_summary(answers: SetupAnswers) -> str:

@@ -47,13 +47,52 @@ class QuestionnaireTests(unittest.TestCase):
                 self.select(key)
 
     def test_collect_answers_trims_identity_and_defaults_ssh_to_no(self):
-        with patch.object(setup_vm, "prompt", side_effect=[" Alice ", " a@b ", "", ()]):
-            answers = setup_vm.collect_answers()
+        with patch.object(setup_vm, "require_program"), patch.object(setup_vm, "read_git_values", return_value=()):
+            with patch.object(setup_vm, "prompt", side_effect=[" Alice ", " a@b ", "", ()]):
+                answers = setup_vm.collect_answers()
         self.assertEqual(answers, setup_vm.SetupAnswers("Alice", "a@b", False, ()))
 
+    def test_collect_answers_keeps_existing_effective_identity_without_prompting(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), patch.object(setup_vm, "require_program"):
+            with patch.object(setup_vm, "read_git_values", side_effect=[("Earlier", "Alice"), ("a@b",)]):
+                with patch.object(setup_vm, "prompt", side_effect=["", ()]) as prompt:
+                    answers = setup_vm.collect_answers()
+        self.assertEqual(answers, setup_vm.SetupAnswers("Alice", "a@b", False, ()))
+        self.assertEqual(prompt.call_count, 2)
+        self.assertIn("user.name is already set to 'Alice'; keeping it", output.getvalue())
+        self.assertIn("user.email is already set to 'a@b'; keeping it", output.getvalue())
+
+    def test_collect_answers_asks_only_for_missing_identity_field(self):
+        for previous, entered, label in (
+            ([("Alice",), ()], "a@b", "Git user email: "),
+            ([(), ("a@b",)], "Alice", "Git user name: "),
+        ):
+            with self.subTest(label=label), contextlib.redirect_stdout(io.StringIO()):
+                with patch.object(setup_vm, "require_program"), patch.object(setup_vm, "read_git_values", side_effect=previous):
+                    with patch.object(setup_vm, "prompt", side_effect=[entered, "", ()]) as prompt:
+                        answers = setup_vm.collect_answers()
+            self.assertEqual(answers, setup_vm.SetupAnswers("Alice", "a@b", False, ()))
+            self.assertEqual(prompt.call_args_list[0].args[0], label)
+            self.assertEqual(prompt.call_count, 3)
+
+    def test_collect_answers_treats_blank_identity_values_as_missing(self):
+        with patch.object(setup_vm, "require_program"), patch.object(setup_vm, "read_git_values", side_effect=[("",), ("   ",)]):
+            with patch.object(setup_vm, "prompt", side_effect=[" Alice ", " a@b ", "", ()]):
+                answers = setup_vm.collect_answers()
+        self.assertEqual(answers, setup_vm.SetupAnswers("Alice", "a@b", False, ()))
+
+    def test_collect_answers_stops_on_git_read_failure(self):
+        with patch.object(setup_vm, "require_program"), patch.object(setup_vm, "read_git_values", side_effect=setup_vm.SetupError("read failed")):
+            with patch.object(setup_vm, "prompt") as prompt:
+                with self.assertRaisesRegex(setup_vm.SetupError, "read failed"):
+                    setup_vm.collect_answers()
+                prompt.assert_not_called()
+
     def test_collect_answers_accepts_ssh_yes(self):
-        with patch.object(setup_vm, "prompt", side_effect=["Alice", "a@b", " YES ", ("Codex",)]):
-            answers = setup_vm.collect_answers()
+        with patch.object(setup_vm, "require_program"), patch.object(setup_vm, "read_git_values", return_value=()):
+            with patch.object(setup_vm, "prompt", side_effect=["Alice", "a@b", " YES ", ("Codex",)]):
+                answers = setup_vm.collect_answers()
         self.assertTrue(answers.generate_ssh_key)
         self.assertEqual(answers.tools, ("Codex",))
 
