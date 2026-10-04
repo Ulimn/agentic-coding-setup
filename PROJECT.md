@@ -17,6 +17,7 @@ The initial scope is:
 - Install and configure a VS Code server.
 - Install selected Git hosting CLI tools.
 - Optionally install Docker Engine with Compose and a Node development tool bundle.
+- Optionally install Base dev tools and Java Tools from Ubuntu APT.
 
 Additional setup tasks may be added later. The initial implementation should
 remain small and understandable, with room to add setup tasks as needed.
@@ -31,6 +32,8 @@ Ask these questions in order:
 3. Whether to generate an Ed25519 SSH key (yes/no, default no).
 4. Which tools to install (multi-select, initially all unchecked):
 
+   - Base dev tools (build-essential, tmux, git, Neovim with vim alias, htop, btop,
+     python3, python3-dev, python3-pip, python3-venv)
    - Visual Studio Code Server
    - Codex
    - Claude Code
@@ -40,6 +43,10 @@ Ask these questions in order:
    - Forgejo CLI
    - Docker with Compose
    - Node Tools (Node.js, npm, pnpm, Yarn, Jest, Playwright)
+   - Java Tools (default JDK, Maven, Gradle)
+
+5. If Node Tools is selected, ask whether to install Playwright Chromium and
+   its system dependencies (yes/no, default no; explain sudo use).
 
 The tool list displays `[ ]` and `[x]` checkboxes. Arrow keys move the cursor,
 Space toggles the highlighted option, and Enter submits. Selecting no tools is
@@ -82,7 +89,9 @@ VS Code server startup remain manual.
   installed on the developer's machine as part of development or testing.
 - Prepare downloads and check prerequisites before showing the setup plan.
   Do not change Git configuration or generate keys if tool preparation fails.
-- Install coding tools and Node Tools for the current VM user, without sudo.
+- Install coding tools and Node Tools CLI commands for the current VM user,
+  without sudo. Optional Playwright Chromium uses sudo for Ubuntu libraries.
+  Base dev tools and Java Tools use sudo for system APT packages.
   Docker packages and boot persistence require sudo, while the daemon runs as the user. Show sources
   and installation scope before confirmation. Native installer scripts are
   downloaded into temporary files and executed as subprocess argument lists.
@@ -108,7 +117,8 @@ VS Code server startup remain manual.
   work, and provide recovery guidance. Reruns skip satisfied steps.
 - Print the PATH command and manual login/startup commands at the end. No
   credentials are collected. Native installers may manage their own shell
-  integration; the Python script does not rewrite shell profiles.
+  integration; the Python script does not rewrite shell profiles except for the
+  explicitly selected Base dev tools Bash alias described below.
   After successful setup with selected tools, end with a Bash refresh hint
   (`source ~/.bashrc`) and an explicit PATH export for the current shell.
   These are instructions for the user; setup does not source shell profiles.
@@ -121,6 +131,32 @@ VS Code server startup remain manual.
   Give these instructions a separate bold red terminal heading so users can
   easily spot them; use plain text when output is redirected.
 - Official source links and supported commands are listed in the README.
+
+## Base dev tools and Java Tools
+
+- Implement both as individual multi-select bundles in environment_installers.py.
+  Base dev tools installs build-essential, tmux, git, neovim, htop, btop, python3,
+  python3-dev, python3-pip and python3-venv. Java Tools installs default-jdk,
+  maven and gradle. Use configured Ubuntu APT repositories (Universe is needed
+  for some packages), without adding PPAs or changing repository configuration.
+- Show missing packages and sudo scope before confirmation. Inspect dpkg status,
+  install only missing packages after apt-get update, and verify installed status.
+  No package upgrades are requested for already-installed bundle components.
+  If an unplanned package disappears, require a fresh plan before installation.
+  Report APT errors and stop; preserve completed work for reruns.
+- Base dev tools appends alias vim='nvim' to ~/.bash_aliases, preserves unrelated
+  content and skips matching aliases. Refuse conflicting aliases or nonregular
+  files including symlinks. Print source ~/.bash_aliases for the current Bash
+  shell; other shells and noninteractive scripts use nvim directly.
+- Versions follow the Ubuntu release, including its default JDK. Projects may
+  use Maven/Gradle wrappers for specific versions. Python/Git remain bootstrap
+  prerequisites; this option does not bootstrap the running script.
+- Validation: mocked tests cover partial/full bundles, package inspection errors,
+  sudo command order, failed installs and verification, changed package state,
+  alias preservation/conflicts/symlinks/reruns, and menu/installer dispatch.
+  Pylint and all 85 unit tests pass on Python 3.10 and 3.14.
+  No system packages were installed on the developer's machine; real APT bundle
+  installation still needs validation on the target VM.
 
 ## Docker and Node Tools
 
@@ -155,8 +191,21 @@ VS Code server startup remain manual.
 - Install npm packages into ~/.local using an explicit registry and prefix;
   use Corepack for current Yarn. Do not create a project, rewrite package.json,
   or change saved npm prefix configuration. Verify all six commands afterward.
-- Playwright browser downloads and OS libraries remain an explicit manual step
-  (`playwright install --with-deps`); only its test CLI is installed by setup.
+- Node Tools optionally installs Chromium and its system libraries after a
+  separate default-no question. Include this choice and sudo scope in the plan.
+  Use the installed Playwright CLI: install --with-deps chromium, then
+  install-deps --dry-run chromium to verify OS packages. Browser downloads run
+  as the user; Playwright elevates the library installation. Check sudo presence
+  before confirmation and run this step even when all Node commands exist.
+  Reruns use Playwright's cache and APT dependency handling; dependency packages
+  may be updated. Do not force browser reinstalls or launch project tests.
+  Opting out keeps browser downloads/manual installation separate. Projects
+  with different Playwright versions should use their own browser installer.
+- Chromium validation uses mocked installer/dependency commands. Coverage includes
+  prompt opt-in/default/omission/cancellation, plan propagation and sudo scope,
+  prerequisites, existing CLI reruns, download environment and failure handling.
+  Pylint and all 94 tests pass on Python 3.10 and 3.14.
+  Real Chromium installation and browser launch remain untested on the target VM.
 - Implementation: environment_installers.py handles these two options, with
   preparation, descriptions and execution integrated into tool_installers.py.
   Docker's real service setup must be tested in a VM; Node Tools supports the
@@ -200,7 +249,7 @@ VS Code server startup remain manual.
 
 - Ctrl+C and end-of-input cancel without a traceback. Before applying the plan,
   cancellation makes no changes; during execution, completed steps may remain.
-- Validation: 75 tests cover input validation, checkbox navigation, cancellation,
+- Validation: 94 tests cover input validation, checkbox navigation, cancellation,
   confirmation, Git writes and verification, reruns, and SSH key preservation,
   reuse of complete or partial Git identities, blank values and read failures,
   generation, permissions, and failures. Git tests use an isolated temporary
@@ -281,7 +330,7 @@ VS Code server startup remain manual.
   runners with Python 3.10 (minimum supported) and 3.14. The Ubuntu 26.04.1
   container remains the separate manual integration target.
 - Run Pylint over all three application modules and the test directory, then
-  all 75 unittest tests. Run tests even if lint fails. Pylint errors and warnings
+  all unittest tests. Run tests even if lint fails. Pylint errors and warnings
   fail the job; convention and refactoring messages are deliberately outside
   this initial gate. Store configuration in pyproject.toml and declare the
   pinned Pylint dependency in requirements-dev.txt, including runtime requirements.

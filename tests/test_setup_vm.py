@@ -34,9 +34,9 @@ class QuestionnaireTests(unittest.TestCase):
         self.assertEqual(self.select("\r"), ())
 
     def test_space_toggles_and_arrows_navigate(self):
-        # Toggle the first item on and off, select Codex, then wrap to Node Tools.
+        # Toggle the first item on and off, select the second, then wrap upward.
         keys = "  \x1b[B \x1b[A\x1b[A \r"
-        self.assertEqual(self.select(keys), ("Codex", "Node Tools"))
+        self.assertEqual(self.select(keys), (setup_vm.TOOLS[1], setup_vm.TOOLS[-1]))
 
     def test_all_requested_tools_can_be_selected(self):
         self.assertEqual(self.select(" \x1b[B" * len(setup_vm.TOOLS) + "\r"), setup_vm.TOOLS)
@@ -95,6 +95,24 @@ class QuestionnaireTests(unittest.TestCase):
                 answers = setup_vm.collect_answers()
         self.assertTrue(answers.generate_ssh_key)
         self.assertEqual(answers.tools, ("Codex",))
+
+    def test_chromium_prompt_is_only_shown_for_node_and_defaults_no(self):
+        for tools, response, expected in (((), None, False), (("Node Tools",), "", False), (("Node Tools",), "y", True)):
+            responses = ["Alice", "a@b", "", tools]
+            if response is not None:
+                responses.append(response)
+            with self.subTest(tools=tools, response=response), patch.object(setup_vm, "require_program"), patch.object(setup_vm, "read_git_values", return_value=()), patch.object(setup_vm, "prompt", side_effect=responses) as prompt:
+                answers = setup_vm.collect_answers()
+            self.assertEqual(answers.playwright_chromium, expected)
+            self.assertEqual(prompt.call_count, len(responses))
+            if response is not None:
+                self.assertIn("uses sudo", prompt.call_args.args[0])
+                self.assertIn("[y/N]", prompt.call_args.args[0])
+
+    def test_chromium_choice_can_be_cancelled(self):
+        with patch.object(setup_vm, "require_program"), patch.object(setup_vm, "read_git_values", return_value=()), patch.object(setup_vm, "prompt", side_effect=["Alice", "a@b", "", ("Node Tools",), KeyboardInterrupt]):
+            with self.assertRaises(KeyboardInterrupt):
+                setup_vm.collect_answers()
 
     def test_summary_distinguishes_choices_from_performed_setup(self):
         summary = setup_vm.format_summary(setup_vm.SetupAnswers("Alice", "a@b", True, ()))

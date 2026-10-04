@@ -37,6 +37,7 @@ class ToolPlan:
     checksum: str | None = None
     packages: tuple[str, ...] = ()
     repository: str = ""
+    playwright_chromium: bool = False
 
 
 NATIVE_INSTALLERS = {
@@ -193,6 +194,10 @@ def prepare_tools(names: tuple[str, ...]) -> tuple[ToolPlan, ...]:
     plans = []
     for name in names:
         print(f"Checking: {name}")
+        if name in ("Base dev tools", "Java Tools"):
+            from environment_installers import prepare_apt_bundle
+            plans.append(prepare_apt_bundle(name))
+            continue
         if name in ("Docker with Compose", "Node Tools"):
             from environment_installers import prepare_docker, prepare_node
             plans.append(prepare_docker(arch) if name == "Docker with Compose" else prepare_node(arch))
@@ -224,10 +229,18 @@ def prepare_tools(names: tuple[str, ...]) -> tuple[ToolPlan, ...]:
 def describe_tool(plan: ToolPlan) -> str:
     if plan.existing:
         return f"  Keep {plan.name}: verified existing installation at {plan.existing}"
+    if plan.method == "apt":
+        packages = ", ".join(plan.packages) or "all packages already installed"
+        alias = "; ensure Bash alias vim=\'nvim\' in ~/.bash_aliases" if plan.name == "Base dev tools" else ""
+        scope = "system packages; sudo required" if plan.packages else "no sudo required"
+        return f"  Complete {plan.name}: {packages} from {plan.source} ({scope}{alias})."
     if plan.method == "docker":
         return f"  Configure rootless Docker, Buildx and Compose from {plan.source} (sudo for packages; disable system Docker; enable/start user Docker service and boot persistence; Docker group unchanged; use Docker without sudo)."
     if plan.method == "node":
-        return f"  Complete Node Tools: {', '.join(plan.packages)} (user-local; Node.js from nodejs.org, packages from npm registry; Yarn via Corepack; browser downloads remain manual)."
+        components = ', '.join(plan.packages) or "keep all six installed commands"
+        browsers = ("install Playwright Chromium and Ubuntu libraries with playwright install --with-deps chromium; sudo required for libraries"
+                    if plan.playwright_chromium else "browser downloads remain manual")
+        return f"  Complete Node Tools: {components} (user-local; Node.js from nodejs.org, packages from npm registry; Yarn via Corepack; {browsers})."
     if plan.method == "archive":
         return f"  Install {plan.name} into {local_bin()} from {plan.archive_url}"
     return f"  Install {plan.name} using its official native installer: {plan.source} (user-local)"
@@ -266,6 +279,10 @@ def install_archive(plan: ToolPlan, directory: Path) -> None:
 
 def install_tools(plans: tuple[ToolPlan, ...]) -> None:
     for plan in plans:
+        if plan.method == "apt":
+            from environment_installers import install_apt_bundle
+            install_apt_bundle(plan)
+            continue
         if plan.method in ("docker", "node"):
             from environment_installers import install_docker, install_node
             (install_docker if plan.method == "docker" else install_node)(plan)

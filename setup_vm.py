@@ -1,6 +1,6 @@
 """Configure Git identity and an optional SSH key for an agentic coding VM."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import os
 from pathlib import Path
 import re
@@ -20,6 +20,7 @@ except ModuleNotFoundError:
 
 
 TOOLS = (
+    "Base dev tools",
     "Visual Studio Code Server",
     "Codex",
     "Claude Code",
@@ -29,6 +30,7 @@ TOOLS = (
     "Forgejo CLI",
     "Docker with Compose",
     "Node Tools",
+    "Java Tools",
 )
 
 
@@ -38,6 +40,7 @@ class SetupAnswers:
     git_email: str
     generate_ssh_key: bool
     tools: tuple[str, ...]
+    playwright_chromium: bool = False
 
 
 @dataclass(frozen=True)
@@ -148,7 +151,11 @@ def collect_answers() -> SetupAnswers:
                 validator=Validator.from_callable(validation, error_message=error_message),
             ).strip()
     generate_key = ask_yes_no("Generate an Ed25519 SSH key?")
-    return SetupAnswers(identity["user.name"], identity["user.email"], generate_key, select_tools())
+    tools = select_tools()
+    chromium = "Node Tools" in tools and ask_yes_no(
+        "Install Chromium and its system dependencies for Playwright? (uses sudo)"
+    )
+    return SetupAnswers(identity["user.name"], identity["user.email"], generate_key, tools, chromium)
 
 
 def format_summary(answers: SetupAnswers) -> str:
@@ -162,6 +169,8 @@ def format_summary(answers: SetupAnswers) -> str:
     lines.extend(f"  - {tool}" for tool in answers.tools)
     if not answers.tools:
         lines.append("  None")
+    if "Node Tools" in answers.tools:
+        lines.append(f"Playwright Chromium and system dependencies: {'Yes' if answers.playwright_chromium else 'No'}")
     return "\n".join(lines)
 
 
@@ -194,14 +203,28 @@ def build_plan(answers: SetupAnswers) -> SetupPlan:
     key_path = Path.home() / ".ssh" / "id_ed25519" if answers.generate_ssh_key else None
     if key_path is not None and not key_files_exist(key_path):
         require_program("ssh-keygen")
+    if answers.playwright_chromium:
+        if "Node Tools" not in answers.tools:
+            raise SetupError("Playwright Chromium requires selecting Node Tools.")
+        if shutil.which("sudo") is None:
+            raise SetupError("Playwright Chromium system dependencies require sudo on Ubuntu.")
+    tools = prepare_tools(answers.tools)
+    if answers.playwright_chromium:
+        tools = tuple(replace(tool, playwright_chromium=True, existing=None,
+                              login="Chromium installed; use your project's matching Playwright version")
+                      if tool.method == "node" else tool for tool in tools)
     return SetupPlan(
         answers, read_git_values("user.name"), read_git_values("user.email"), key_path,
-        prepare_tools(answers.tools),
+        tools,
     )
 
 
 def format_plan(plan: SetupPlan) -> str:
     scope = "Docker uses sudo; other tools are user-local" if any(tool.method == "docker" and not tool.existing for tool in plan.tools) else "current user; no sudo"
+    if any(tool.method == "apt" and tool.packages for tool in plan.tools):
+        scope = "system package bundles use sudo; Git/SSH and coding tools run as current user"
+    if any(tool.playwright_chromium for tool in plan.tools):
+        scope = "system packages and Playwright Chromium dependencies use sudo; coding tools are user-local"
     lines = [format_summary(plan.answers), f"\nSetup plan ({scope}):"]
     for key, previous, desired in (
         ("user.name", plan.previous_name, plan.answers.git_name),

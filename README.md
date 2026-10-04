@@ -46,6 +46,8 @@ If either `~/.ssh/id_ed25519` or `~/.ssh/id_ed25519.pub` already exists, key
 generation is skipped without overwriting files. Partial failures leave completed
 steps in place; resolve the reported error and rerun.
 
+Base dev tools and Java Tools use `sudo` to install system packages.
+The optional Playwright Chromium setup also uses sudo for Ubuntu libraries.
 Coding tools and Node Tools are installed for the current user. Docker with
 Compose uses `sudo` for system packages, disabling system Docker, and user-service
 boot persistence. The Docker daemon runs as the current user.
@@ -57,6 +59,7 @@ failure stops subsequent steps, and rerunning resumes from existing installation
 
 | Selection | Command | Installation source | Manual login or startup |
 | --- | --- | --- | --- |
+| Base dev tools | Build tools, `tmux`, `git`, `nvim` (`vim` Bash alias), `htop`, `btop`, Python development tools | [Ubuntu APT packages](https://ubuntu.com/server/docs/package-management/) | `source ~/.bash_aliases` |
 | Visual Studio Code Server | `code` | [Microsoft standalone CLI](https://code.visualstudio.com/docs/remote/tunnels) | `code tunnel --disable-telemetry` |
 | Codex | `codex` | [Official native installer](https://learn.chatgpt.com/docs/codex/cli) | `codex`, then choose device code sign-in |
 | Claude Code | `claude` | [Official native installer, stable channel](https://code.claude.com/docs/en/setup) | `claude` |
@@ -65,7 +68,8 @@ failure stops subsequent steps, and rerunning resumes from existing installation
 | GitLab CLI | `glab` | [Official GitLab releases](https://gitlab.com/gitlab-org/cli/-/releases) | `glab auth login` |
 | Forgejo CLI | `fj` | [forgejo-contrib releases](https://codeberg.org/forgejo-contrib/forgejo-cli/releases) | `fj auth login` |
 | Docker with Compose | `docker`, `docker compose` | [Docker's signed Ubuntu APT repository](https://docs.docker.com/engine/install/ubuntu/) | `docker info` (rootless) |
-| Node Tools | `node`, `npm`, `pnpm`, `yarn`, `jest`, `playwright` | [Official Node.js LTS binaries](https://nodejs.org/en/download), npm registry, and [Yarn via Corepack](https://yarnpkg.com/getting-started/install) | Optional: `playwright install --with-deps` |
+| Node Tools | `node`, `npm`, `pnpm`, `yarn`, `jest`, `playwright` | [Official Node.js LTS binaries](https://nodejs.org/en/download), npm registry, and [Yarn via Corepack](https://yarnpkg.com/getting-started/install) | Optional Chromium prompt; other browsers: `playwright install --with-deps` |
+| Java Tools | `java`, `javac`, `mvn`, `gradle` | [Ubuntu APT packages](https://ubuntu.com/server/docs/package-management/) | None |
 
 User-local commands are installed in `~/.local/bin`; native installers also manage their
 own files and may configure shell integration. If your shell cannot find the
@@ -80,6 +84,27 @@ Add this line to your shell profile if needed for future sessions.
 Setup ends with a reminder to run `source ~/.bashrc` if you use Bash. This
 reloads any profile changes made by the installers. The PATH export above makes
 the commands available immediately even if your `.bashrc` does not include it.
+
+### Base dev tools and Java Tools
+
+Base dev tools installs `build-essential`, `tmux`, `git`, `neovim`, `htop`,
+`btop`, `python3`, `python3-dev`, `python3-pip`, and `python3-venv`.
+Java Tools installs `default-jdk`, `maven`, and `gradle`.
+
+Both use your configured Ubuntu APT repositories, including Universe where
+needed. Setup installs only missing packages, checks their installed status,
+and leaves repository configuration and existing package versions alone.
+An APT failure stops setup; check the output and repository availability before
+rerunning. Versions follow your Ubuntu release, rather than upstream latest.
+For projects requiring a particular Gradle or Maven version, use the project's
+wrapper (`./gradlew` or `./mvnw`).
+
+Base dev tools appends `alias vim='nvim'` to `~/.bash_aliases` without duplicating
+it or replacing unrelated aliases. A conflicting `vim` alias or a symlink at
+that path requires manual review. Activate it with `source ~/.bash_aliases` in
+Bash; `source ~/.bashrc` also works if your profile loads that file.
+The alias applies to Bash shells; scripts and other shells should invoke `nvim`.
+Python and Git remain prerequisites for starting this Python setup script.
 
 ### Docker with Compose
 
@@ -145,14 +170,26 @@ Existing Node.js must be version 22 or newer. Older installations need a manual
 upgrade before selecting Node Tools. Jest and Playwright are installed as CLI
 conveniences; projects should also declare their test dependencies locally.
 
-Playwright browser binaries and system dependencies are a separate step:
+When Node Tools is selected, setup asks whether to install Chromium and its
+system dependencies for Playwright (default **No**). Choosing Yes adds this
+[official Playwright command](https://playwright.dev/docs/browsers#install-system-dependencies)
+to the confirmed plan:
 
 ```sh
-playwright install --with-deps
+playwright install --with-deps chromium
 ```
 
-This downloads browsers and may require `sudo` for Ubuntu libraries. Use the
-project's Playwright command instead if it has its own version installed.
+Chromium is downloaded for the current user; Ubuntu libraries require `sudo`.
+Setup then checks libraries with `playwright install-deps --dry-run chromium`.
+Reruns keep installed Node commands and repeat the Chromium installer, which
+reuses matching cached browser binaries and lets APT satisfy dependencies.
+The browser step may update its dependency packages. Installation failures stop
+setup and preserve completed work. No browser tests are launched by setup.
+
+Choosing No installs only the Playwright CLI. For libraries only, run
+`playwright install-deps chromium`. For other browsers, run
+`playwright install --with-deps`. Use the project's Playwright command if it has
+its own version installed: browser versions must match the Playwright version.
 
 The VS Code selection prepares Microsoft's Remote Tunnels CLI. Run
 `code tunnel --disable-telemetry` yourself to accept the server license, sign in,
