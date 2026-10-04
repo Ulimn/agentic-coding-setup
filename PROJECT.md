@@ -105,6 +105,9 @@ VS Code server startup remain manual.
 - Print the PATH command and manual login/startup commands at the end. No
   credentials are collected. Native installers may manage their own shell
   integration; the Python script does not rewrite shell profiles.
+  After successful setup with selected tools, end with a Bash refresh hint
+  (`source ~/.bashrc`) and an explicit PATH export for the current shell.
+  These are instructions for the user; setup does not source shell profiles.
 - For Codex on a remote VM, prominently recommend starting `codex` and choosing
   device code sign-in in its initial login menu. Keep the officially documented
   `codex login --device-auth` command as an alternative. Explain the account/workspace setting
@@ -191,14 +194,21 @@ VS Code server startup remain manual.
   The user also reports that Forgejo CLI did not install. At the time of that
   report, the tested `fj version` fix and container changes had not been pushed,
   so the remote checkout may have contained the old `--version` verification.
-  These changes are included in this update. The exact user error and tested
-  revision are pending; this report is not yet diagnosed.
+  The user's latest VM output confirms the fix: Forgejo CLI is installed and
+  verified as `fj v0.6.0`.
 - The user subsequently confirmed successful Codex subscription login through
   the initial device code menu after enabling device code authentication in
   settings. Their report mentions `claude login --device-auth` as failing;
   whether this was a typo for `codex` is unconfirmed. The README and setup
   output now lead with the successful menu route. No failure cause for the
   direct command has been established.
+- The latest user VM output confirms preservation of Git identity and existing
+  code, Codex, Claude, gh, and fj installations, plus successful installation
+  and verification of Antigravity 1.2.16 and glab 1.120.0 on ARM64. Antigravity's
+  upstream installer emits `ERROR: logging before google.Init` prefixes on its
+  informational setup messages, but completes and passes version verification.
+  A blank line now separates the accepted setup confirmation from execution
+  output. Upstream installer output remains visible for troubleshooting.
 
 ## High-level implementation plan
 

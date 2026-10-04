@@ -73,6 +73,10 @@ export PATH="$HOME/.local/bin:$PATH"
 
 Add this line to your shell profile if needed for future sessions.
 
+Setup ends with a reminder to run `source ~/.bashrc` if you use Bash. This
+reloads any profile changes made by the installers. The PATH export above makes
+the commands available immediately even if your `.bashrc` does not include it.
+
 The VS Code selection prepares Microsoft's Remote Tunnels CLI. Run
 `code tunnel --disable-telemetry` yourself to accept the server license, sign in,
 and download and start the server. It prints a connection URL for your browser

@@ -282,6 +282,9 @@ def apply_setup(plan: SetupPlan) -> None:
         print("Skipped: SSH key generation was not selected.")
     install_tools(plan.tools)
     print("\nSetup complete. Account login remains manual.")
+    if plan.tools:
+        print("\nIn Bash, refresh your current shell: source ~/.bashrc")
+        print('To make installed commands available now: export PATH="$HOME/.local/bin:$PATH"')
 
 
 def main() -> int:
@@ -299,6 +302,7 @@ def main() -> int:
             print("\nSetup cancelled. No changes were made.")
             return 0
         execution_started = True
+        print()
         apply_setup(plan)
     except (KeyboardInterrupt, EOFError):
         if execution_started:
