@@ -76,6 +76,40 @@ or local VS Code client. Setup does not start a tunnel, open a listening port,
 or create a background service. Account login and SSH key registration remain
 manual for all tools.
 
+## Codex login on a remote VM
+
+Before starting Codex for the first time, sign in from the VM terminal using
+your ChatGPT subscription account:
+
+```sh
+codex login --device-auth
+```
+
+Open the printed link in your local browser and enter the one-time code. For a
+personal account, enable device code login in ChatGPT's security settings first;
+for a workspace account, an administrator may need to enable it in workspace
+permissions. This flow does not require a callback to your VM.
+
+The regular browser login uses a localhost callback. Opening that link in a
+browser on your computer sends the callback to your computer's loopback address,
+while Codex is waiting inside the VM. Replacing `127.0.0.1` with the VM's IP does
+not make that callback flow work.
+
+If device code login is unavailable, forward the callback port over SSH.
+Run this on the computer where your browser runs:
+
+```sh
+ssh -o ExitOnForwardFailure=yes -L 127.0.0.1:1455:localhost:1455 user@vm
+```
+
+Inside that SSH session, run `codex login`, then open its printed login link in
+your local browser. Keep the SSH session open through login. These instructions
+assume Codex runs directly inside the VM; for a Docker test container, use the
+device code flow.
+
+See [OpenAI's authentication documentation](https://learn.chatgpt.com/docs/auth)
+for account settings and supported login methods.
+
 For remote execution, allocate a terminal:
 
 ```sh
@@ -85,3 +119,35 @@ ssh -t user@vm 'cd /path/to/agentic-coding-setup && .venv/bin/python setup_vm.py
 If virtual environment creation reports that `ensurepip` is unavailable, install
 `python3-venv` as shown above. If pip reports `externally-managed-environment`,
 use `.venv/bin/python -m pip` rather than installing into the system Python.
+
+## Test in an Ubuntu container
+
+Requires a running Docker engine (Docker Desktop or OrbStack on macOS).
+Build the test image from the project directory:
+
+```sh
+docker build --pull -f Dockerfile.test -t agentic-vm-setup-test .
+docker run --rm -it agentic-vm-setup-test
+```
+
+The image uses the official `ubuntu:26.04` image and checks that its point
+release is **26.04.1**. The build fails if the tag moves to another point release.
+It installs prerequisites and Python dependencies, runs the automated tests,
+and opens a shell as the normal user `vmtest`.
+
+Inside that shell, start setup:
+
+```sh
+python setup_vm.py
+```
+
+Use a test Git name and email, request an SSH key, and select the tools you want
+to test. Run the same command again with the same choices to check that matching
+Git settings, the existing key, and installed tools are preserved. Keep both
+runs in the same container shell. Use `exit` when finished; `--rm` removes the
+container and its configuration, keys, and installed tools. A new `docker run`
+starts fresh. Rebuild the image after changing the project files.
+
+The container uses its own home directory and does not mount your host files
+or credentials. It tests setup and installation; account login and persistent
+VS Code server operation still need testing in the target VM.

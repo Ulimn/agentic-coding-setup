@@ -1,4 +1,5 @@
 import contextlib
+import gzip
 import hashlib
 import io
 import json
@@ -76,6 +77,49 @@ class InstallerTests(unittest.TestCase):
     def test_http_downloads_are_rejected(self):
         with self.assertRaisesRegex(installers.InstallerError, "HTTPS"):
             installers.request("http://example.com/tool")
+
+    def test_forgejo_version_subcommand_works_for_staged_and_installed_paths(self):
+        for executable in ("/tmp/vm-setup/fj", "/home/vmtest/.local/bin/fj", "/tmp/vm-setup/gh"):
+            with self.subTest(executable=executable):
+                is_forgejo = executable.endswith("/fj")
+                output = "Could not find keys file. Creating a new file.\nfj v1.2.3\nCheck for a new version\n" if is_forgejo else "tool 1.2.3\n"
+                result = subprocess.CompletedProcess([], 0, stdout=output, stderr="")
+                with patch.object(installers.subprocess, "run", return_value=result) as run:
+                    self.assertEqual(installers.verify_executable(executable), "fj v1.2.3" if is_forgejo else "tool 1.2.3")
+                argument = "version" if is_forgejo else "--version"
+                self.assertEqual(run.call_args.args[0], [executable, argument])
+
+    def test_forgejo_notice_without_version_is_not_success(self):
+        result = subprocess.CompletedProcess([], 0, stdout="Could not find keys file. Creating a new file.\n", stderr="")
+        with patch.object(installers.subprocess, "run", return_value=result):
+            with self.assertRaisesRegex(installers.InstallerError, "No version was reported"):
+                installers.verify_executable("/tmp/vm-setup/fj")
+
+    def test_metadata_decodes_http_gzip_but_preserves_plain_responses(self):
+        content = b"#!/bin/bash\necho installer\n"
+        for encoding, payload in (("identity", content), ("gzip", gzip.compress(content))):
+            with self.subTest(encoding=encoding):
+                response = io.BytesIO(payload)
+                response.headers = {"Content-Encoding": encoding}
+                with patch.object(installers, "request", return_value=response):
+                    self.assertEqual(installers.fetch_bytes("https://example.com/install.sh"), content)
+
+    def test_metadata_limits_compressed_and_decoded_response_size(self):
+        oversized = b"a" * (2 * 1024 * 1024 + 1)
+        for encoding, payload in (("identity", oversized), ("gzip", gzip.compress(oversized))):
+            with self.subTest(encoding=encoding):
+                response = io.BytesIO(payload)
+                response.headers = {"Content-Encoding": encoding}
+                with patch.object(installers, "request", return_value=response):
+                    with self.assertRaisesRegex(installers.InstallerError, "Unexpectedly large"):
+                        installers.fetch_bytes("https://example.com/install.sh")
+
+    def test_invalid_gzip_metadata_has_actionable_error(self):
+        response = io.BytesIO(gzip.compress(b"#!/bin/bash")[:-4])
+        response.headers = {"Content-Encoding": "gzip"}
+        with patch.object(installers, "request", return_value=response):
+            with self.assertRaisesRegex(installers.InstallerError, "Invalid gzip"):
+                installers.fetch_bytes("https://example.com/install.sh")
 
     def test_checksum_parser_requires_matching_filename(self):
         digest = "a" * 64

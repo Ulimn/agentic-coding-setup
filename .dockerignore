@@ -1,0 +1,9 @@
+# Send only the inputs used by the test image to Docker.
+**
+!Dockerfile.test
+!.dockerignore
+!requirements.txt
+!setup_vm.py
+!tool_installers.py
+!tests/
+!tests/test_*.py

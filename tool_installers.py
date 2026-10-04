@@ -1,7 +1,9 @@
 """User-local installers for Ubuntu VMs; no authentication or services are started."""
 
 from dataclasses import dataclass, field
+import gzip
 import hashlib
+import io
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -12,6 +14,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import zlib
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -85,9 +88,21 @@ def request(url: str):
 
 
 def fetch_bytes(url: str) -> bytes:
+    limit = 2 * 1024 * 1024
     with request(url) as response:
-        data = response.read(2 * 1024 * 1024 + 1)
-    if len(data) > 2 * 1024 * 1024:
+        encoding = response.headers.get("Content-Encoding", "identity").strip().lower()
+        data = response.read(limit + 1)
+    if len(data) > limit:
+        raise InstallerError(f"Unexpectedly large installer metadata: {url}")
+    if encoding == "gzip":
+        try:
+            with gzip.GzipFile(fileobj=io.BytesIO(data), mode="rb") as decoded:
+                data = decoded.read(limit + 1)
+        except (OSError, EOFError, zlib.error):
+            raise InstallerError(f"Invalid gzip installer metadata: {url}") from None
+    elif encoding != "identity":
+        raise InstallerError(f"Unsupported HTTP content encoding {encoding!r}: {url}")
+    if len(data) > limit:
         raise InstallerError(f"Unexpectedly large installer metadata: {url}")
     return data
 
@@ -110,14 +125,18 @@ def ubuntu_arch() -> str:
 
 
 def verify_executable(executable: str) -> str:
+    version_argument = "version" if Path(executable).name == "fj" else "--version"
     try:
-        result = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=30)
+        result = subprocess.run([executable, version_argument], capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise InstallerError(f"Could not verify {executable}: {error}") from None
-    if result.returncode != 0 or not result.stdout.strip():
+    lines = result.stdout.strip().splitlines()
+    # fj can print a keys-file notice before its version, even without login.
+    version = next((line for line in lines if line.startswith("fj v")), "") if version_argument == "version" else (lines[0] if lines else "")
+    if result.returncode != 0 or not version:
         detail = result.stderr.strip() or "No version was reported."
         raise InstallerError(f"{executable} failed its version check: {detail} Resolve the installation and rerun.")
-    return result.stdout.strip().splitlines()[0]
+    return version
 
 
 def checksum_for(name: str, manifest: str) -> str:
@@ -269,3 +288,8 @@ def install_tools(plans: tuple[ToolPlan, ...]) -> None:
         print("Manual account login:")
         for plan in plans:
             print(f"  {plan.name}: {plan.login}")
+        if any(plan.name == "Codex" for plan in plans):
+            print("\nBefore starting Codex on this VM, run: codex login --device-auth")
+            print("Enable device code login in ChatGPT security settings (or workspace permissions).")
+            print("Open the printed link in your browser and enter the one-time code; no localhost callback is needed.")
+            print("If device code login is unavailable, see README.md for SSH callback port forwarding.")

@@ -88,17 +88,22 @@ VS Code server startup remain manual.
   CLI, and Microsoft archives against upstream SHA-256 checksums. Native
   installers perform their own payload verification. Forgejo's current release
   publishes no checksum; its archive is downloaded directly from Codeberg over
-  HTTPS and its executable is verified with `--version`.
+  HTTPS and its executable is verified with `fj version`.
 - Copy only the intended regular executable from release archives; do not
   extract arbitrary archive paths or symlinks. Publish with exclusive hard
   links so concurrent files are not overwritten.
 - Find existing installations on PATH and in `~/.local/bin`; verify them and
   skip reinstalls. Report broken existing files rather than overwriting them.
-- Verify new installations with `--version`. Stop on errors, preserve completed
+- Verify new installations with `--version` (`version` for Forgejo CLI). Stop on errors, preserve completed
   work, and provide recovery guidance. Reruns skip satisfied steps.
 - Print the PATH command and manual login/startup commands at the end. No
   credentials are collected. Native installers may manage their own shell
   integration; the Python script does not rewrite shell profiles.
+- For Codex on a remote VM, prominently recommend `codex login --device-auth`
+  before starting the interactive agent. Explain the account/workspace setting
+  for device code login and the browser code flow. Document SSH forwarding of
+  the localhost callback as a fallback for Codex running directly in a VM.
+  Authentication remains manual; setup does not initiate account login.
 - Official source links and supported commands are listed in the README.
 
 ## Current implementation and runtime
@@ -119,7 +124,7 @@ VS Code server startup remain manual.
 
 - Ctrl+C and end-of-input cancel without a traceback. Before applying the plan,
   cancellation makes no changes; during execution, completed steps may remain.
-- Validation: 36 tests cover input validation, checkbox navigation, cancellation,
+- Validation: 41 tests cover input validation, checkbox navigation, cancellation,
   confirmation, Git writes and verification, reruns, and SSH key preservation,
   generation, permissions, and failures. Git tests use an isolated temporary
   config file; SSH commands are mocked and operate on temporary test fixtures.
@@ -137,9 +142,47 @@ VS Code server startup remain manual.
   A read-only live check successfully resolved the Microsoft, GitHub, GitLab,
   and Forgejo download plans and available checksum manifests. Official native
   installer scripts were downloaded and reviewed without executing them.
-  End-to-end installation still needs testing on the user's Ubuntu VM.
+  End-to-end installation is verified in the Ubuntu container described below;
+  authentication and VS Code server startup still need testing on the user's VM.
+- Container integration test target: Ubuntu 26.04.1 LTS, using the
+  official `ubuntu:26.04` Docker image and verifying the installed point release
+  inside the container. Run as a normal user in an interactive terminal and
+  repeat setup to check existing configuration, key, and tool preservation.
+  Container testing complements VM testing for authentication and server startup;
+  `Dockerfile.test` installs prerequisites and Python dependencies, checks the
+  exact point release, and runs the existing automated tests during the build.
+  Its interactive shell runs as `vmtest`, with a separate home and no host
+  mounts. `.dockerignore` includes only the required build inputs. The README
+  documents building, running, repeating setup, and disposing of the container.
+  The image built successfully on ARM64 with Ubuntu 26.04.1 and Python 3.14.4;
+  all 41 tests passed in the final build.
+  A real interactive run exposed gzip HTTP compression on the Antigravity
+  installer response. Metadata downloads now decode that encoding with bounded
+  compressed and decoded sizes; three regression tests cover plain/compressed
+  responses, size limits, and corrupt gzip data. The real run also revealed that
+  Forgejo CLI requires `fj version`; verification now uses its supported
+  subcommand and reads the version line rather than its keys-file notice, with
+  regression coverage for staged/installed paths and missing version output.
+  Real interactive setup configured Git, generated an Ed25519 key with verified
+  permissions, and installed all seven tools: code 1.140.0, Codex 0.160.0,
+  Claude Code 2.1.285, Antigravity 1.2.16, gh 2.102.0, glab 1.120.0, and fj 0.6.0.
+  Recovery after the Forgejo verification failure preserved prior completed work.
+  A final interactive rerun skipped all satisfied steps; hashes, inodes,
+  modification times, and modes confirmed that Git config, both key files, and
+  all seven executables were unchanged. The disposable container was removed.
+  AMD64 container execution, account login, and VS Code server startup were not
+  tested in this round.
 - The README includes usage, Ubuntu prerequisites, virtual environment
   installation, SSH terminal allocation, and Git/SSH setup behavior.
+- Latest user VM feedback: Codex installed, but regular browser login returned
+  to `127.0.0.1` on the browser's machine; changing the callback to the VM IP did
+  not work. The README and setup output now explain device code login and the
+  SSH forwarding fallback, checked against official OpenAI authentication docs.
+  The user also reports that Forgejo CLI did not install. At the time of that
+  report, the tested `fj version` fix and container changes had not been pushed,
+  so the remote checkout may have contained the old `--version` verification.
+  These changes are included in this update. The exact user error and tested
+  revision are pending; this report is not yet diagnosed.
 
 ## High-level implementation plan
 
