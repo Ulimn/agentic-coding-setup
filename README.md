@@ -46,7 +46,8 @@ If either `~/.ssh/id_ed25519` or `~/.ssh/id_ed25519.pub` already exists, key
 generation is skipped without overwriting files. Partial failures leave completed
 steps in place; resolve the reported error and rerun.
 
-Selected tools are installed for the current user, with no `sudo` required.
+Coding tools and Node Tools are installed for the current user. Docker with
+Compose uses `sudo` to install system packages and enable/start the Docker service.
 Existing commands are verified and skipped. Run the script as your normal VM
 user, without `sudo`. Downloads are prepared before confirmation; an installation
 failure stops subsequent steps, and rerunning resumes from existing installations.
@@ -62,8 +63,10 @@ failure stops subsequent steps, and rerunning resumes from existing installation
 | GitHub CLI | `gh` | [Official GitHub releases](https://github.com/cli/cli/releases) | `gh auth login` |
 | GitLab CLI | `glab` | [Official GitLab releases](https://gitlab.com/gitlab-org/cli/-/releases) | `glab auth login` |
 | Forgejo CLI | `fj` | [forgejo-contrib releases](https://codeberg.org/forgejo-contrib/forgejo-cli/releases) | `fj auth login` |
+| Docker with Compose | `docker`, `docker compose` | [Docker's signed Ubuntu APT repository](https://docs.docker.com/engine/install/ubuntu/) | `sudo docker info` |
+| Node Tools | `node`, `npm`, `pnpm`, `yarn`, `jest`, `playwright` | [Official Node.js LTS binaries](https://nodejs.org/en/download), npm registry, and [Yarn via Corepack](https://yarnpkg.com/getting-started/install) | Optional: `playwright install --with-deps` |
 
-Commands are installed in `~/.local/bin`; native installers also manage their
+User-local commands are installed in `~/.local/bin`; native installers also manage their
 own files and may configure shell integration. If your shell cannot find the
 commands, run:
 
@@ -76,6 +79,50 @@ Add this line to your shell profile if needed for future sessions.
 Setup ends with a reminder to run `source ~/.bashrc` if you use Bash. This
 reloads any profile changes made by the installers. The PATH export above makes
 the commands available immediately even if your `.bashrc` does not include it.
+
+### Docker with Compose
+
+This option installs Docker Engine, the Docker CLI, containerd, Buildx, and the
+Compose plugin from Docker's official signed APT repository, rather than a PPA.
+It supports Ubuntu 22.04, 24.04, and 26.04 VMs running systemd. The plan shows
+system-wide changes before confirmation; `sudo` may prompt for your password.
+Use `docker compose`, with a space, for Compose.
+
+The script preserves matching repository files, refuses to overwrite different
+ones, and stops if conflicting packages such as `docker.io`, `containerd`, or
+`runc` are installed. It does not remove them automatically. Follow Docker's
+linked Ubuntu instructions to resolve conflicts before rerunning.
+
+Docker group membership is unchanged, so use `sudo docker` and
+`sudo docker compose`. Adding a user to the Docker group grants root-level
+privileges; see [Docker's post-installation guidance](https://docs.docker.com/engine/install/linux-postinstall/)
+if you choose to enable that access yourself.
+
+### Node Tools
+
+One checkbox installs Node.js, bundled npm, pnpm, current Yarn via Corepack,
+Jest, and the Playwright test CLI. New Node.js installs use the latest LTS binary
+from nodejs.org and verify its published SHA-256 checksum. Runtime files live
+under `~/.local/share/vm-setup/node`; npm packages use the user prefix `~/.local`.
+When Corepack is missing, its supporting files use a separate managed prefix
+under `~/.local/share/vm-setup/corepack` so its shims cannot replace an existing
+pnpm command. Only the Yarn shims are enabled in `~/.local/bin`.
+Setup creates no project or test configuration and does not change npm's saved
+global prefix settings.
+
+Each existing command is verified and preserved; missing components are added.
+Existing Node.js must be version 22 or newer. Older installations need a manual
+upgrade before selecting Node Tools. Jest and Playwright are installed as CLI
+conveniences; projects should also declare their test dependencies locally.
+
+Playwright browser binaries and system dependencies are a separate step:
+
+```sh
+playwright install --with-deps
+```
+
+This downloads browsers and may require `sudo` for Ubuntu libraries. Use the
+project's Playwright command instead if it has its own version installed.
 
 The VS Code selection prepares Microsoft's Remote Tunnels CLI. Run
 `code tunnel --disable-telemetry` yourself to accept the server license, sign in,
@@ -163,3 +210,6 @@ starts fresh. Rebuild the image after changing the project files.
 The container uses its own home directory and does not mount your host files
 or credentials. It tests setup and installation; account login and persistent
 VS Code server operation still need testing in the target VM.
+Node Tools can be tested in this container. Docker Engine service installation
+requires the target VM with systemd; it is not supported inside this disposable
+container, and the host Docker socket is not mounted.
