@@ -114,7 +114,7 @@ def ubuntu_arch() -> str:
     if platform.system() != "Linux":
         raise InstallerError("Tool installation currently supports Ubuntu 22.04+ only.")
     values = dict(
-        line.split("=", 1) for line in Path("/etc/os-release").read_text().splitlines()
+        line.split("=", 1) for line in Path("/etc/os-release").read_text(encoding="utf-8").splitlines()
         if "=" in line and not line.startswith("#")
     )
     distro = values.get("ID", "").strip('"')
@@ -130,7 +130,7 @@ def ubuntu_arch() -> str:
 def verify_executable(executable: str, *, env: dict[str, str] | None = None) -> str:
     version_argument = "version" if Path(executable).name == "fj" else "--version"
     try:
-        result = subprocess.run([executable, version_argument], capture_output=True, text=True, timeout=30, env=env)
+        result = subprocess.run([executable, version_argument], capture_output=True, text=True, timeout=30, env=env, check=False)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise InstallerError(f"Could not verify {executable}: {error}") from None
     lines = result.stdout.strip().splitlines()
@@ -291,7 +291,7 @@ def install_tools(plans: tuple[ToolPlan, ...]) -> None:
                     command = [plan.method, str(script)]
                     if plan.name == "Claude Code":
                         command.append("stable")
-                    result = subprocess.run(command, env=environment)
+                    result = subprocess.run(command, env=environment, check=False)
                     if result.returncode != 0:
                         raise InstallerError(f"{plan.name} installer failed (exit {result.returncode}). Check its output and rerun.")
             path = find_executable(plan.executable)

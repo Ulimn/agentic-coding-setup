@@ -243,3 +243,28 @@ VS Code server operation still need testing in the target VM.
 Node Tools can be tested in this container. Docker Engine service installation
 requires the target VM with systemd; it is not supported inside this disposable
 container, and the host Docker socket is not mounted.
+
+## Development checks
+
+Install the development dependencies into the project virtual environment and
+run the same checks used by CI:
+
+```sh
+.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python -m pylint setup_vm.py tool_installers.py environment_installers.py tests
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+GitHub Actions runs both checks on Ubuntu 24.04 with Python 3.10 and 3.14 for
+pull requests and pushes to `main`, and supports manual runs. Pylint checks all
+application and test modules and fails on errors or warnings. Its initial
+configuration leaves naming, formatting, documentation and complexity
+conventions out of the gate. Tests mock provisioning commands and network
+downloads; they do not install Docker or coding tools on the runner. Real
+installation, interactive authentication and VM service tests remain manual.
+
+The workflow uses standard GitHub-hosted Linux runners, read-only repository
+permissions, a ten-minute job timeout, and cancellation of superseded runs.
+It does not upload artifacts or use persistent caches. Standard runners are
+free for this public repository; private repositories on GitHub Free share a
+2,000-minute monthly allowance. See [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).

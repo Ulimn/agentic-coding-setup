@@ -170,10 +170,10 @@ class EnvironmentInstallerTests(unittest.TestCase):
 
     def test_docker_repository_files_are_preserved(self):
         repository = self.root / "docker.sources"
-        repository.write_text("keep me")
+        repository.write_text("keep me", encoding="utf-8")
         with self.assertRaisesRegex(installers.InstallerError, "will not be overwritten"):
             environment.check_repository_file(repository, b"different repository")
-        self.assertEqual(repository.read_text(), "keep me")
+        self.assertEqual(repository.read_text(encoding="utf-8"), "keep me")
 
     def test_docker_existing_complete_installation_skips_privileged_changes(self):
         plan = installers.ToolPlan("Docker with Compose", "docker", "", "docker", "", existing="/usr/bin/docker")
@@ -187,7 +187,7 @@ class EnvironmentInstallerTests(unittest.TestCase):
     def test_docker_apt_failure_stops_before_starting_service(self):
         plan = installers.ToolPlan("Docker with Compose", "docker", environment.DOCKER_SOURCE, "docker", "", script=b"key", packages=environment.DOCKER_PACKAGES, repository="repo")
         commands = []
-        def run(command, **kwargs):
+        def run(command, **_kwargs):
             commands.append(command)
             if command[:3] == ["sudo", "apt-get", "install"]:
                 raise installers.InstallerError("apt failure")
@@ -288,7 +288,7 @@ class RootlessDockerTests(unittest.TestCase):
     def test_failed_setup_stops_before_claiming_rootless_success(self):
         plan = installers.ToolPlan("Docker with Compose", "docker", "", "docker", "")
         commands = []
-        def run(command, **kwargs):
+        def run(command, **_kwargs):
             commands.append(command)
             if command == ["/usr/bin/dockerd-rootless-setuptool.sh", "check"]:
                 raise installers.InstallerError("prerequisite check failed")

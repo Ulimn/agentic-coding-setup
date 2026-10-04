@@ -3,7 +3,6 @@ import gzip
 import hashlib
 import io
 import json
-import os
 from pathlib import Path
 import subprocess
 import tarfile
@@ -56,7 +55,7 @@ class InstallerTests(unittest.TestCase):
 
     def test_existing_executable_is_verified_without_downloading(self):
         executable = self.bin / "codex"
-        executable.write_text("fixture")
+        executable.write_text("fixture", encoding="utf-8")
         executable.chmod(0o755)
         with patch.object(installers, "ubuntu_arch", return_value="amd64"):
             with patch.object(installers.shutil, "which", return_value=None):
@@ -68,11 +67,11 @@ class InstallerTests(unittest.TestCase):
 
     def test_non_executable_existing_file_is_preserved(self):
         target = self.bin / "gh"
-        target.write_text("keep me")
+        target.write_text("keep me", encoding="utf-8")
         with patch.object(installers.shutil, "which", return_value=None):
             with self.assertRaisesRegex(installers.InstallerError, "not executable"):
                 installers.find_executable("gh")
-        self.assertEqual(target.read_text(), "keep me")
+        self.assertEqual(target.read_text(encoding="utf-8"), "keep me")
 
     def test_http_downloads_are_rejected(self):
         with self.assertRaisesRegex(installers.InstallerError, "HTTPS"):

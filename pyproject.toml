@@ -1,0 +1,12 @@
+[tool.pylint.main]
+py-version = "3.10"
+persistent = false
+
+[tool.pylint.messages_control]
+# Enforce errors and warnings. Naming, documentation, formatting and complexity
+# conventions are outside this initial CI gate.
+disable = ["C", "R"]
+
+[tool.pylint.reports]
+reports = false
+score = false

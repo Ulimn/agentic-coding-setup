@@ -27,7 +27,7 @@ NPM_PACKAGES = {"pnpm": "pnpm", "jest": "jest", "playwright": "@playwright/test"
 
 def run_checked(command: list[str], **kwargs) -> subprocess.CompletedProcess:
     try:
-        result = subprocess.run(command, **kwargs)
+        result = subprocess.run(command, check=False, **kwargs)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise InstallerError(f"Could not run {' '.join(command)}: {error}") from None
     if result.returncode != 0:
@@ -40,6 +40,7 @@ def installed_packages() -> set[str]:
     result = subprocess.run(
         ["dpkg-query", "-W", "-f=${binary:Package}\t${db:Status-Status}\n", *DOCKER_PACKAGES, *DOCKER_CONFLICTS],
         capture_output=True, text=True,
+        check=False,
     )
     if result.returncode not in (0, 1):
         raise InstallerError(f"Could not inspect Docker packages: {result.stderr.strip()}")
@@ -78,7 +79,7 @@ def rootless_prerequisites() -> None:
     user = docker_user()
     for filename in ("/etc/subuid", "/etc/subgid"):
         try:
-            entries = Path(filename).read_text().splitlines()
+            entries = Path(filename).read_text(encoding="utf-8").splitlines()
             valid = any(len(parts := line.split(":")) == 3
                         and parts[0] in (user, str(os.getuid()))
                         and parts[1].isdigit() and parts[2].isdigit()
@@ -95,7 +96,7 @@ def rootless_prerequisites() -> None:
 def inspect_docker_command(command: list[str]) -> subprocess.CompletedProcess:
     # Missing contexts and inactive services use nonzero exit codes normally.
     try:
-        return subprocess.run(command, capture_output=True, text=True, timeout=30)
+        return subprocess.run(command, capture_output=True, text=True, timeout=30, check=False)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise InstallerError(f"Could not inspect Docker state: {error}. Resolve the error and rerun.") from None
 
