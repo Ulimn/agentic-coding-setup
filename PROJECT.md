@@ -173,7 +173,9 @@ VS Code server startup remain manual.
   a missing Playwright launcher preserved the other five. The official Docker
   Resolute repository metadata and signing key were checked over HTTPS.
   Docker package installation/service startup is mocked in tests and remains
-  unverified on a real VM, including the new rootless service setup. Rootless
+  not exercised on a real VM during development. The user subsequently confirmed
+  that the rootless setup works on their VM; its exact OS version and individual
+  verification outputs were not supplied. Rootless
   regression coverage includes migration refusal, root/group/endpoint checks,
   subordinate ranges, user-session availability, partial/existing installs,
   rootless security verification and command failures. Official rootless
