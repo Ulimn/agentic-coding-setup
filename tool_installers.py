@@ -225,7 +225,7 @@ def describe_tool(plan: ToolPlan) -> str:
     if plan.existing:
         return f"  Keep {plan.name}: verified existing installation at {plan.existing}"
     if plan.method == "docker":
-        return f"  Install Docker Engine, Buildx and Compose system-wide from {plan.source} (sudo required; enable/start Docker service; Docker group unchanged)."
+        return f"  Configure rootless Docker, Buildx and Compose from {plan.source} (sudo for packages; disable system Docker; enable/start user Docker service and boot persistence; Docker group unchanged; use Docker without sudo)."
     if plan.method == "node":
         return f"  Complete Node Tools: {', '.join(plan.packages)} (user-local; Node.js from nodejs.org, packages from npm registry; Yarn via Corepack; browser downloads remain manual)."
     if plan.method == "archive":

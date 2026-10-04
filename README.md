@@ -47,7 +47,8 @@ generation is skipped without overwriting files. Partial failures leave complete
 steps in place; resolve the reported error and rerun.
 
 Coding tools and Node Tools are installed for the current user. Docker with
-Compose uses `sudo` to install system packages and enable/start the Docker service.
+Compose uses `sudo` for system packages, disabling system Docker, and user-service
+boot persistence. The Docker daemon runs as the current user.
 Existing commands are verified and skipped. Run the script as your normal VM
 user, without `sudo`. Downloads are prepared before confirmation; an installation
 failure stops subsequent steps, and rerunning resumes from existing installations.
@@ -63,7 +64,7 @@ failure stops subsequent steps, and rerunning resumes from existing installation
 | GitHub CLI | `gh` | [Official GitHub releases](https://github.com/cli/cli/releases) | `gh auth login` |
 | GitLab CLI | `glab` | [Official GitLab releases](https://gitlab.com/gitlab-org/cli/-/releases) | `glab auth login` |
 | Forgejo CLI | `fj` | [forgejo-contrib releases](https://codeberg.org/forgejo-contrib/forgejo-cli/releases) | `fj auth login` |
-| Docker with Compose | `docker`, `docker compose` | [Docker's signed Ubuntu APT repository](https://docs.docker.com/engine/install/ubuntu/) | `sudo docker info` |
+| Docker with Compose | `docker`, `docker compose` | [Docker's signed Ubuntu APT repository](https://docs.docker.com/engine/install/ubuntu/) | `docker info` (rootless) |
 | Node Tools | `node`, `npm`, `pnpm`, `yarn`, `jest`, `playwright` | [Official Node.js LTS binaries](https://nodejs.org/en/download), npm registry, and [Yarn via Corepack](https://yarnpkg.com/getting-started/install) | Optional: `playwright install --with-deps` |
 
 User-local commands are installed in `~/.local/bin`; native installers also manage their
@@ -82,21 +83,50 @@ the commands available immediately even if your `.bashrc` does not include it.
 
 ### Docker with Compose
 
-This option installs Docker Engine, the Docker CLI, containerd, Buildx, and the
-Compose plugin from Docker's official signed APT repository, rather than a PPA.
-It supports Ubuntu 22.04, 24.04, and 26.04 VMs running systemd. The plan shows
-system-wide changes before confirmation; `sudo` may prompt for your password.
-Use `docker compose`, with a space, for Compose.
+This option installs Docker Engine, rootless extras, the Docker CLI, containerd,
+Buildx, and Compose from Docker's official signed Ubuntu APT repository. It also
+installs `uidmap`, `dbus-user-session`, and `apparmor`. It supports Ubuntu 22.04,
+24.04, and 26.04 VMs running systemd. Run setup as your normal VM user in a real
+login/SSH session with a working `systemctl --user` connection.
 
-The script preserves matching repository files, refuses to overwrite different
-ones, and stops if conflicting packages such as `docker.io`, `containerd`, or
-`runc` are installed. It does not remove them automatically. Follow Docker's
-linked Ubuntu instructions to resolve conflicts before rerunning.
+The plan explains sudo use for packages, disabling the system Docker service and
+socket, and enabling user-service boot persistence (`loginctl enable-linger`).
+Setup starts Docker as your user and selects the `rootless` CLI context. Use
+`docker` and `docker compose` **without sudo**. Reruns verify the local rootless
+socket, daemon security options, plugins, and boot persistence.
 
-Docker group membership is unchanged, so use `sudo docker` and
-`sudo docker compose`. Adding a user to the Docker group grants root-level
-privileges; see [Docker's post-installation guidance](https://docs.docker.com/engine/install/linux-postinstall/)
-if you choose to enable that access yourself.
+Each of `/etc/subuid` and `/etc/subgid` must already allocate at least 65,536
+subordinate IDs to your user. Ubuntu normally allocates these for new users;
+otherwise ask the VM administrator to allocate non-overlapping ranges. Setup
+does not invent ID allocations. Unset `DOCKER_HOST` and `DOCKER_CONTEXT` overrides
+before running setup. The packaged rootless extras use Ubuntu's AppArmor
+integration; setup does not disable AppArmor or user-namespace restrictions.
+
+Matching repository files are preserved. Differing files and conflicting
+packages such as `docker.io`, `containerd`, or `runc` require manual review.
+If system Docker is already running, setup stops before making changes. Stop
+containers deliberately, then disable the old daemon and rerun:
+
+```sh
+sudo systemctl disable --now docker.service docker.socket
+```
+
+Existing rootful images, containers, and volumes are retained in their original
+storage; they are not migrated into the user's rootless Docker storage. If the
+upstream prerequisite check reports a leftover system socket, review/remove it
+only after confirming the old daemon is stopped.
+
+Setup never adds your user to the Docker group and refuses existing membership
+until you remove it and log out/in. Group access grants VM root privileges.
+Rootless Docker still has your user's file permissions and does not isolate
+credentials stored under that account. Avoid unrestricted passwordless sudo for
+an agent account if you intend to protect the VM system from it.
+
+Use published ports such as `8080` for development. Rootless networking,
+privileged operations, and resource limits have differences from rootful Docker;
+see [Docker's rootless documentation](https://docs.docker.com/engine/security/rootless/)
+and [limitations](https://docs.docker.com/engine/security/rootless/troubleshoot/).
+VM isolation also depends on host shares, sockets, credentials, and network access.
 
 ### Node Tools
 

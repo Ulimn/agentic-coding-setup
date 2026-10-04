@@ -1,5 +1,4 @@
 import contextlib
-import hashlib
 import io
 import json
 from pathlib import Path
@@ -19,6 +18,10 @@ class EnvironmentInstallerTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
+        for name in ("rootless_prerequisites", "require_rootful_stopped"):
+            mock = patch.object(environment, name)
+            mock.start()
+            self.addCleanup(mock.stop)
 
     def test_node_partial_bundle_is_not_skipped_when_node_exists(self):
         paths = {"node": "/test/node", "npm": "/test/npm"}
@@ -174,12 +177,12 @@ class EnvironmentInstallerTests(unittest.TestCase):
 
     def test_docker_existing_complete_installation_skips_privileged_changes(self):
         plan = installers.ToolPlan("Docker with Compose", "docker", "", "docker", "", existing="/usr/bin/docker")
-        with patch.object(environment, "docker_versions") as verify:
+        with patch.object(environment, "docker_versions") as verify, patch.object(environment, "rootless_ready", return_value=True), patch.object(environment, "rootless_boot_ready", return_value=True):
             with patch.object(environment, "run_checked") as run:
                 with contextlib.redirect_stdout(io.StringIO()):
                     environment.install_docker(plan)
         verify.assert_called_once()
-        run.assert_not_called()
+        self.assertEqual(run.call_args.args[0], ["/usr/bin/docker", "context", "use", "rootless"])
 
     def test_docker_apt_failure_stops_before_starting_service(self):
         plan = installers.ToolPlan("Docker with Compose", "docker", environment.DOCKER_SOURCE, "docker", "", script=b"key", packages=environment.DOCKER_PACKAGES, repository="repo")
@@ -199,12 +202,15 @@ class EnvironmentInstallerTests(unittest.TestCase):
     def test_docker_success_starts_service_and_verifies_daemon_without_group_change(self):
         plan = installers.ToolPlan("Docker with Compose", "docker", environment.DOCKER_SOURCE, "docker", "", script=b"key", packages=environment.DOCKER_PACKAGES, repository="repo")
         with patch.object(environment, "installed_packages", return_value=set()):
-            with patch.object(environment, "check_repository_file"), patch.object(environment, "docker_versions") as verify:
+            with patch.object(environment, "check_repository_file"), patch.object(environment, "docker_versions") as verify, patch.object(environment, "rootless_ready", return_value=True), patch.object(environment, "rootless_boot_ready", return_value=True):
                 with patch.object(environment, "run_checked") as run, contextlib.redirect_stdout(io.StringIO()):
                     environment.install_docker(plan)
         commands = [call.args[0] for call in run.call_args_list]
-        self.assertIn(["sudo", "systemctl", "enable", "--now", "docker"], commands)
-        self.assertIn(["sudo", "/usr/bin/docker", "info"], commands)
+        self.assertIn(["sudo", "systemctl", "disable", "--now", "docker.service", "docker.socket"], commands)
+        self.assertIn(["systemctl", "--user", "enable", "--now", "docker.service"], commands)
+        self.assertIn(["/usr/bin/dockerd-rootless-setuptool.sh", "install"], commands)
+        self.assertTrue(any(command[:3] == ["sudo", "loginctl", "enable-linger"] for command in commands))
+        self.assertFalse(any(command[:2] == ["sudo", "/usr/bin/docker"] for command in commands))
         self.assertFalse(any("usermod" in command for command in commands))
         verify.assert_called_once()
 
@@ -214,8 +220,88 @@ class EnvironmentInstallerTests(unittest.TestCase):
         plan = setup_vm.SetupPlan(answers, (), (), None, (tool,))
         text = setup_vm.format_plan(plan)
         self.assertIn("Docker uses sudo", text)
-        self.assertIn("enable/start Docker service", text)
+        self.assertIn("enable/start user Docker service", text)
         self.assertIn("Docker group unchanged", text)
+
+
+class RootlessDockerTests(unittest.TestCase):
+    def test_active_system_daemon_requires_manual_migration(self):
+        with patch.object(environment, "rootful_active", return_value=True):
+            with self.assertRaisesRegex(installers.InstallerError, "disable --now"):
+                environment.require_rootful_stopped()
+
+    def test_rootless_info_must_explicitly_report_rootless(self):
+        for output, expected in (( '["name=rootless", "name=seccomp"]', True), ('["name=seccomp"]', False), ('bad json', False), ('{}', False)):
+            with self.subTest(output=output), patch.object(environment.subprocess, "run", side_effect=[subprocess.CompletedProcess([], 0, json.dumps(f"unix:///run/user/{environment.os.getuid()}/docker.sock")), subprocess.CompletedProcess([], 0, output)]) as run:
+                self.assertEqual(environment.rootless_ready(), expected)
+                self.assertIn("rootless", run.call_args.args[0])
+
+    def test_rootless_context_cannot_point_to_another_daemon(self):
+        with patch.object(environment.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, '"unix:///var/run/docker.sock"')) as run:
+            with self.assertRaisesRegex(installers.InstallerError, "will not be overwritten"):
+                environment.rootless_ready()
+        self.assertEqual(run.call_count, 1)
+
+    def test_boot_verification_requires_user_service_linger_and_disabled_system_units(self):
+        for user_enabled, linger, system_enabled, expected in (("enabled", "yes", "disabled", True), ("disabled", "yes", "disabled", False), ("enabled", "no", "disabled", False), ("enabled", "yes", "enabled", False)):
+            with self.subTest(user=user_enabled, linger=linger, system=system_enabled):
+                results = [subprocess.CompletedProcess([], 0 if user_enabled == "enabled" else 1, user_enabled), subprocess.CompletedProcess([], 0, linger), subprocess.CompletedProcess([], 1, system_enabled), subprocess.CompletedProcess([], 1, "disabled")]
+                with patch.object(environment, "docker_user", return_value="vmtest"), patch.object(environment.subprocess, "run", side_effect=results):
+                    self.assertEqual(environment.rootless_boot_ready(), expected)
+
+    def test_inspection_timeout_has_actionable_error(self):
+        with patch.object(environment.subprocess, "run", side_effect=subprocess.TimeoutExpired("docker", 30)):
+            with self.assertRaisesRegex(installers.InstallerError, "Could not inspect Docker state"):
+                environment.rootless_ready()
+
+    def test_existing_packages_do_not_mean_rootless_is_configured(self):
+        with patch.object(environment.shutil, "which", return_value="/test/program"), patch.object(environment, "installed_packages", return_value=set(environment.DOCKER_PACKAGES)), patch.object(environment, "rootless_prerequisites"), patch.object(environment, "require_rootful_stopped"), patch.object(environment, "docker_versions"), patch.object(environment, "rootless_ready", return_value=False), patch.object(environment.platform, "freedesktop_os_release", return_value={"VERSION_CODENAME": "resolute"}), patch.object(environment, "fetch_bytes") as fetch:
+            plan = environment.prepare_docker("arm64")
+        self.assertIsNone(plan.existing)
+        self.assertEqual(plan.packages, ())
+        fetch.assert_not_called()
+
+    def test_root_user_is_rejected(self):
+        with patch.object(environment.os, "getuid", return_value=0):
+            with self.assertRaisesRegex(installers.InstallerError, "normal user"):
+                environment.rootless_prerequisites()
+
+    def test_docker_group_access_is_rejected(self):
+        import types
+        with patch.object(environment.os, "getuid", return_value=1001), patch.object(environment.os, "getgid", return_value=1001), patch.object(environment.os, "getgroups", return_value=[1001, 999]), patch.object(environment.grp, "getgrnam", return_value=types.SimpleNamespace(gr_gid=999, gr_mem=[])):
+            with self.assertRaisesRegex(installers.InstallerError, "Docker group access"):
+                environment.rootless_prerequisites()
+
+    def test_overriding_docker_endpoint_is_rejected(self):
+        with patch.object(environment.os, "getuid", return_value=1001), patch.object(environment.grp, "getgrnam", side_effect=KeyError), patch.dict(environment.os.environ, {"DOCKER_HOST": "unix:///other.sock"}):
+            with self.assertRaisesRegex(installers.InstallerError, "Unset DOCKER_HOST"):
+                environment.rootless_prerequisites()
+
+    def test_subordinate_ranges_and_user_manager_are_required(self):
+        with patch.object(environment.os, "getuid", return_value=1001), patch.object(environment.grp, "getgrnam", side_effect=KeyError), patch.object(environment, "docker_user", return_value="vmtest"), patch.dict(environment.os.environ, {}, clear=True), patch.object(environment.Path, "read_text", return_value="vmtest:100000:65536\n"), patch.object(environment.Path, "is_dir", return_value=True), patch.object(environment, "run_checked") as run:
+            environment.rootless_prerequisites()
+            self.assertEqual(run.call_args.args[0], ["systemctl", "--user", "show-environment"])
+            with patch.object(environment.Path, "read_text", return_value="other:100000:65536\nvmtest:200000:100\n"):
+                with self.assertRaisesRegex(installers.InstallerError, "subordinate ID range"):
+                    environment.rootless_prerequisites()
+
+    def test_failed_setup_stops_before_claiming_rootless_success(self):
+        plan = installers.ToolPlan("Docker with Compose", "docker", "", "docker", "")
+        commands = []
+        def run(command, **kwargs):
+            commands.append(command)
+            if command == ["/usr/bin/dockerd-rootless-setuptool.sh", "check"]:
+                raise installers.InstallerError("prerequisite check failed")
+        with patch.object(environment, "rootless_prerequisites"), patch.object(environment, "require_rootful_stopped"), patch.object(environment, "installed_packages", return_value=set(environment.DOCKER_PACKAGES)), patch.object(environment, "run_checked", side_effect=run), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(installers.InstallerError, "prerequisite check failed"):
+                environment.install_docker(plan)
+        self.assertFalse(any(command[-1] == "install" for command in commands))
+
+    def test_failed_final_verification_is_reported(self):
+        plan = installers.ToolPlan("Docker with Compose", "docker", "", "docker", "")
+        with patch.object(environment, "rootless_prerequisites"), patch.object(environment, "require_rootful_stopped"), patch.object(environment, "installed_packages", return_value=set(environment.DOCKER_PACKAGES)), patch.object(environment, "run_checked"), patch.object(environment, "docker_versions"), patch.object(environment, "rootless_ready", return_value=False), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(installers.InstallerError, "could not be verified"):
+                environment.install_docker(plan)
 
 
 if __name__ == "__main__":

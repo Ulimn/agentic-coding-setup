@@ -83,7 +83,7 @@ VS Code server startup remain manual.
 - Prepare downloads and check prerequisites before showing the setup plan.
   Do not change Git configuration or generate keys if tool preparation fails.
 - Install coding tools and Node Tools for the current VM user, without sudo.
-  Docker is a system-wide exception requiring sudo. Show sources
+  Docker packages and boot persistence require sudo, while the daemon runs as the user. Show sources
   and installation scope before confirmation. Native installer scripts are
   downloaded into temporary files and executed as subprocess argument lists.
 - Use the official native installers for Codex, Claude Code (stable channel),
@@ -126,14 +126,25 @@ VS Code server startup remain manual.
 
 - Docker uses its official signed Ubuntu APT repository (not a PPA) on Ubuntu
   22.04, 24.04, and 26.04 VMs with systemd. Install docker-ce, docker-ce-cli,
-  containerd.io, docker-buildx-plugin, and docker-compose-plugin; enable/start
-  the Docker service and verify the CLI, both plugins, and daemon connection.
+  containerd.io, docker-buildx-plugin, docker-compose-plugin and
+  docker-ce-rootless-extras, plus uidmap, dbus-user-session and apparmor.
+  Disable system Docker and enable/start the user Docker service, with lingering
+  for boot persistence. Verify the local rootless socket/context, daemon security
+  options, both plugins, and service persistence.
 - Show sudo/service scope in the setup plan. Refuse conflicting distribution
   packages and differing existing repository/key files; do not remove packages
   or overwrite unrelated repository configuration. Preserve a complete verified
   installation, and install missing official packages on partial setups.
-- Keep Docker group membership unchanged and print sudo-based Docker commands.
-  Document the privilege implications of opting into Docker group access.
+- Rootless Docker is the selected default for agent container access. Never add
+  Docker group membership; refuse existing membership and endpoint environment
+  overrides. Require existing subordinate UID/GID ranges and a working systemd
+  user session. Refuse active system Docker before changes; migration requires
+  the user to deliberately stop containers and disable the old daemon/socket.
+  Preserve rootful data without automatic migration. Use Docker without sudo.
+- Treat the VM as the LLM agent security boundary. Rootless Docker reduces VM
+  privileges but retains access to the agent account's files and credentials.
+  Host shares/sockets, external credentials, network access and unrestricted
+  sudo must be considered separately; setup does not provision those boundaries.
 - One Node Tools checkbox covers node, npm, pnpm, yarn, jest, and playwright.
   Verify each existing command independently and install only missing components.
   Existing Node.js must be at least version 22 and is never silently replaced.
@@ -150,7 +161,8 @@ VS Code server startup remain manual.
   preparation, descriptions and execution integrated into tool_installers.py.
   Docker's real service setup must be tested in a VM; Node Tools supports the
   disposable Ubuntu container.
-- Validation: all 63 automated tests pass locally and in the final Ubuntu
+- Validation: the original Docker/Node implementation passed 63 tests locally
+  and in the Ubuntu container build. The rootless revision passes 75 tests locally and in the Ubuntu 26.04.1 ARM64
   container build. They cover existing and partial bundles, older Node
   versions, LTS/CPU/checksum selection, safe Node archive handling, package
   failures, Corepack commands, Docker package conflicts, repository preservation,
@@ -161,7 +173,12 @@ VS Code server startup remain manual.
   a missing Playwright launcher preserved the other five. The official Docker
   Resolute repository metadata and signing key were checked over HTTPS.
   Docker package installation/service startup is mocked in tests and remains
-  unverified on a real VM. Browser downloads were not performed.
+  unverified on a real VM, including the new rootless service setup. Rootless
+  regression coverage includes migration refusal, root/group/endpoint checks,
+  subordinate ranges, user-session availability, partial/existing installs,
+  rootless security verification and command failures. Official rootless
+  package/service instructions and Ubuntu AppArmor guidance were rechecked.
+  Browser downloads were not performed.
 
 ## Current implementation and runtime
 
@@ -181,7 +198,7 @@ VS Code server startup remain manual.
 
 - Ctrl+C and end-of-input cancel without a traceback. Before applying the plan,
   cancellation makes no changes; during execution, completed steps may remain.
-- Validation: 63 tests cover input validation, checkbox navigation, cancellation,
+- Validation: 75 tests cover input validation, checkbox navigation, cancellation,
   confirmation, Git writes and verification, reruns, and SSH key preservation,
   reuse of complete or partial Git identities, blank values and read failures,
   generation, permissions, and failures. Git tests use an isolated temporary

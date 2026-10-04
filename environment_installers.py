@@ -1,10 +1,12 @@
 """Docker's signed Ubuntu repository and a user-local Node tool bundle."""
 
+import grp
 import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
 import platform
+import pwd
 import re
 import shutil
 import subprocess
@@ -14,7 +16,7 @@ import tempfile
 from tool_installers import InstallerError, ToolPlan, checksum_for, fetch_bytes, find_executable, local_bin, request, verify_executable
 
 
-DOCKER_PACKAGES = ("docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin")
+DOCKER_PACKAGES = ("docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin", "docker-ce-rootless-extras", "uidmap", "dbus-user-session", "apparmor")
 DOCKER_CONFLICTS = ("docker.io", "docker-compose", "docker-compose-v2", "docker-doc", "docker-buildx", "podman-docker", "containerd", "runc")
 DOCKER_SOURCE = "https://download.docker.com/linux/ubuntu"
 DOCKER_KEY = Path("/etc/apt/keyrings/docker.asc")
@@ -57,68 +59,173 @@ def check_repository_file(path: Path, expected: bytes) -> None:
         raise InstallerError(f"{path} already exists with different contents; it will not be overwritten. Review Docker's official repository setup before rerunning.")
 
 
+def docker_user() -> str:
+    return pwd.getpwuid(os.getuid()).pw_name
+
+
+def rootless_prerequisites() -> None:
+    if os.getuid() == 0:
+        raise InstallerError("Rootless Docker must be configured as a normal user, not root.")
+    try:
+        docker_group = grp.getgrnam("docker")
+        docker_gid = docker_group.gr_gid
+    except KeyError:
+        docker_gid = None
+    if docker_gid is not None and (docker_gid in {*os.getgroups(), os.getgid()} or docker_user() in docker_group.gr_mem):
+        raise InstallerError("This session has Docker group access (VM root privileges). Remove that membership manually and log out/in before configuring rootless Docker.")
+    if os.environ.get("DOCKER_HOST") or os.environ.get("DOCKER_CONTEXT"):
+        raise InstallerError("Unset DOCKER_HOST and DOCKER_CONTEXT before setup so the rootless Docker context can be selected and verified.")
+    user = docker_user()
+    for filename in ("/etc/subuid", "/etc/subgid"):
+        try:
+            entries = Path(filename).read_text().splitlines()
+            valid = any(len(parts := line.split(":")) == 3
+                        and parts[0] in (user, str(os.getuid()))
+                        and parts[1].isdigit() and parts[2].isdigit()
+                        and int(parts[2]) >= 65536 for line in entries)
+        except OSError:
+            valid = False
+        if not valid:
+            raise InstallerError(f"Rootless Docker requires a subordinate ID range of at least 65536 in {filename} for {user}. Ask your VM administrator to allocate a non-overlapping range, then rerun.")
+    if not Path("/run/systemd/system").is_dir():
+        raise InstallerError("Rootless Docker requires a VM running systemd, not the disposable test container.")
+    run_checked(["systemctl", "--user", "show-environment"], capture_output=True, text=True, timeout=30)
+
+
+def inspect_docker_command(command: list[str]) -> subprocess.CompletedProcess:
+    # Missing contexts and inactive services use nonzero exit codes normally.
+    try:
+        return subprocess.run(command, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise InstallerError(f"Could not inspect Docker state: {error}. Resolve the error and rerun.") from None
+
+
+def rootful_active() -> bool:
+    for unit in ("docker.service", "docker.socket"):
+        result = inspect_docker_command(["systemctl", "is-active", unit])
+        if result.returncode == 0 or result.stdout.strip() in ("activating", "deactivating", "reloading"):
+            return True
+        if result.returncode not in (3, 4):
+            raise InstallerError(f"Could not inspect {unit}. Check systemctl before rerunning.")
+    return False
+
+
+def require_rootful_stopped() -> None:
+    if rootful_active():
+        raise InstallerError("A system Docker service/socket is running. Stop any containers you want to preserve, then run: sudo systemctl disable --now docker.service docker.socket. Rerun setup afterward; existing rootful images/volumes are not migrated or deleted.")
+
+
+def rootless_ready() -> bool:
+    context = inspect_docker_command(["/usr/bin/docker", "context", "inspect", "rootless", "--format", "{{json .Endpoints.docker.Host}}"])
+    if context.returncode != 0:
+        return False
+    try:
+        endpoint = json.loads(context.stdout)
+    except ValueError:
+        raise InstallerError("The existing rootless Docker context is invalid; review it manually.") from None
+    if endpoint != f"unix:///run/user/{os.getuid()}/docker.sock":
+        raise InstallerError("The existing rootless Docker context points somewhere else; it will not be overwritten. Review it manually before rerunning.")
+    result = inspect_docker_command(["/usr/bin/docker", "--context", "rootless", "info", "--format", "{{json .SecurityOptions}}"])
+    if result.returncode != 0:
+        return False
+    try:
+        options = json.loads(result.stdout)
+    except ValueError:
+        return False
+    return isinstance(options, list) and "name=rootless" in options
+
+
+def rootless_boot_ready() -> bool:
+    user_service = inspect_docker_command(["systemctl", "--user", "is-enabled", "docker.service"])
+    linger = run_checked(["loginctl", "show-user", docker_user(), "--property=Linger", "--value"], capture_output=True, text=True, timeout=30)
+    for unit in ("docker.service", "docker.socket"):
+        system_service = inspect_docker_command(["systemctl", "is-enabled", unit])
+        if system_service.stdout.strip() not in ("disabled", "masked", "not-found"):
+            return False
+    return user_service.returncode == 0 and user_service.stdout.strip() == "enabled" and linger.stdout.strip() == "yes"
+
+
 def prepare_docker(arch: str) -> ToolPlan:
-    for program in ("dpkg-query", "apt-get"):
+    for program in ("dpkg-query", "apt-get", "systemctl", "loginctl"):
         if shutil.which(program) is None:
-            raise InstallerError(f"{program} is required to install Docker from its Ubuntu repository.")
+            raise InstallerError(f"{program} is required to install rootless Docker in an Ubuntu VM.")
     installed = installed_packages()
-    login = "sudo docker info; sudo docker compose version (Docker group membership is unchanged)"
-    if set(DOCKER_PACKAGES) <= installed:
-        docker_versions()
-        return ToolPlan("Docker with Compose", "docker", DOCKER_SOURCE, "docker", login, existing="/usr/bin/docker")
     conflicts = installed.intersection(DOCKER_CONFLICTS)
     if conflicts:
         raise InstallerError(f"Conflicting Docker packages: {', '.join(sorted(conflicts))}. Review/remove them manually using Docker's Ubuntu instructions; setup will not remove packages.")
+    rootless_prerequisites()
+    require_rootful_stopped()
+    login = "docker info; docker compose version (rootless; no sudo needed)"
+    if set(DOCKER_PACKAGES) <= installed:
+        docker_versions()
+        if rootless_ready() and rootless_boot_ready():
+            return ToolPlan("Docker with Compose", "docker", DOCKER_SOURCE, "docker", login, existing="rootless Docker context")
     if shutil.which("sudo") is None:
-        raise InstallerError("Docker installation requires sudo. Run setup as a normal user with sudo access in your VM.")
-    if not Path("/run/systemd/system").is_dir():
-        raise InstallerError("Docker Engine installation requires a VM running systemd. The disposable test container supports Node Tools, but cannot run this Docker service setup.")
-    codename = platform.freedesktop_os_release().get("UBUNTU_CODENAME") or platform.freedesktop_os_release().get("VERSION_CODENAME", "")
+        raise InstallerError("Rootless Docker setup requires sudo for packages and boot persistence; run as a normal user with sudo access.")
+    release = platform.freedesktop_os_release()
+    codename = release.get("UBUNTU_CODENAME") or release.get("VERSION_CODENAME", "")
     if codename not in ("jammy", "noble", "resolute"):
         raise InstallerError("Docker's official repository is supported here on Ubuntu 22.04, 24.04 and 26.04 only.")
-    legacy = DOCKER_REPOSITORY.with_name("docker.list")
-    if legacy.exists():
-        raise InstallerError(f"Existing {legacy}: review the Docker repository configuration manually before adding docker.sources.")
-    key = fetch_bytes(f"{DOCKER_SOURCE}/gpg")
-    if not key.startswith(b"-----BEGIN PGP PUBLIC KEY BLOCK-----"):
-        raise InstallerError("Docker's official repository key did not return a public PGP key.")
-    repository = (
-        f"Types: deb\nURIs: {DOCKER_SOURCE}\nSuites: {codename}\nComponents: stable\n"
-        f"Architectures: {arch}\nSigned-By: {DOCKER_KEY}\n"
-    )
-    check_repository_file(DOCKER_KEY, key)
-    check_repository_file(DOCKER_REPOSITORY, repository.encode())
+    packages = tuple(package for package in DOCKER_PACKAGES if package not in installed)
+    key, repository = b"", ""
+    if packages:
+        legacy = DOCKER_REPOSITORY.with_name("docker.list")
+        if legacy.exists():
+            raise InstallerError(f"Existing {legacy}: review the Docker repository configuration manually before adding docker.sources.")
+        key = fetch_bytes(f"{DOCKER_SOURCE}/gpg")
+        if not key.startswith(b"-----BEGIN PGP PUBLIC KEY BLOCK-----"):
+            raise InstallerError("Docker's official repository key did not return a public PGP key.")
+        repository = (
+            f"Types: deb\nURIs: {DOCKER_SOURCE}\nSuites: {codename}\nComponents: stable\n"
+            f"Architectures: {arch}\nSigned-By: {DOCKER_KEY}\n"
+        )
+        check_repository_file(DOCKER_KEY, key)
+        check_repository_file(DOCKER_REPOSITORY, repository.encode())
     return ToolPlan("Docker with Compose", "docker", DOCKER_SOURCE, "docker", login,
-                    script=key, packages=tuple(package for package in DOCKER_PACKAGES if package not in installed), repository=repository)
+                    script=key, packages=packages, repository=repository)
 
 
 def install_docker(plan: ToolPlan) -> None:
+    rootless_prerequisites()
+    require_rootful_stopped()
     if plan.existing:
         docker_versions()
-        print("Skipped: Docker Engine, Buildx and Compose are already installed and verified.")
+        if not rootless_ready() or not rootless_boot_ready():
+            raise InstallerError("Rootless Docker changed since planning. Rerun setup to repair it.")
+        run_checked(["/usr/bin/docker", "context", "use", "rootless"])
+        print("Skipped: rootless Docker, Buildx and Compose are verified; selected the rootless context.")
         return
-    # Recheck before privileged changes; don't remove conflicting packages.
     conflicts = installed_packages().intersection(DOCKER_CONFLICTS)
     if conflicts:
         raise InstallerError(f"Conflicting Docker packages appeared: {', '.join(sorted(conflicts))}; nothing was removed.")
-    check_repository_file(DOCKER_KEY, plan.script)
-    check_repository_file(DOCKER_REPOSITORY, plan.repository.encode())
-    print("Installing Docker Engine, Buildx and Compose system-wide using sudo.")
+    print("Configuring rootless Docker; sudo is used only for packages, disabling system Docker and boot persistence.")
     run_checked(["sudo", "-v"])
-    with tempfile.TemporaryDirectory(prefix="vm-setup-docker-") as temporary:
-        for destination, contents in ((DOCKER_KEY, plan.script), (DOCKER_REPOSITORY, plan.repository.encode())):
-            source = Path(temporary) / destination.name
-            source.write_bytes(contents)
-            source.chmod(0o644)
-            run_checked(["sudo", "install", "-m", "0755", "-d", str(destination.parent)])
-            run_checked(["sudo", "cp", "--no-clobber", "--", str(source), str(destination)])
-            check_repository_file(destination, contents)
-    run_checked(["sudo", "apt-get", "update"])
-    run_checked(["sudo", "apt-get", "install", "-y", *plan.packages])
-    run_checked(["sudo", "systemctl", "enable", "--now", "docker"])
+    if plan.packages:
+        check_repository_file(DOCKER_KEY, plan.script)
+        check_repository_file(DOCKER_REPOSITORY, plan.repository.encode())
+        with tempfile.TemporaryDirectory(prefix="vm-setup-docker-") as temporary:
+            for destination, contents in ((DOCKER_KEY, plan.script), (DOCKER_REPOSITORY, plan.repository.encode())):
+                source = Path(temporary) / destination.name
+                source.write_bytes(contents)
+                source.chmod(0o644)
+                run_checked(["sudo", "install", "-m", "0755", "-d", str(destination.parent)])
+                run_checked(["sudo", "cp", "--no-clobber", "--", str(source), str(destination)])
+                check_repository_file(destination, contents)
+        run_checked(["sudo", "apt-get", "update"])
+        run_checked(["sudo", "apt-get", "install", "-y", *plan.packages])
+    # Packages can automatically start system Docker. Disable it before rootless
+    # setup; pre-existing running daemons were refused before any installation.
+    run_checked(["sudo", "systemctl", "disable", "--now", "docker.service", "docker.socket"])
+    require_rootful_stopped()
+    run_checked(["/usr/bin/dockerd-rootless-setuptool.sh", "check"])
+    run_checked(["/usr/bin/dockerd-rootless-setuptool.sh", "install"])
+    run_checked(["systemctl", "--user", "enable", "--now", "docker.service"])
+    run_checked(["sudo", "loginctl", "enable-linger", docker_user()])
+    run_checked(["/usr/bin/docker", "context", "use", "rootless"])
     docker_versions()
-    run_checked(["sudo", "/usr/bin/docker", "info"], capture_output=True, text=True, timeout=30)
-    print("Installed and verified: Docker Engine, Buildx and Compose. Use sudo docker; Docker group membership was not changed.")
+    if not rootless_ready() or not rootless_boot_ready():
+        raise InstallerError("Docker rootless mode or boot persistence could not be verified. Check systemctl --user status docker and rerun.")
+    print("Installed and verified: rootless Docker, Buildx and Compose. Use docker and docker compose without sudo.")
 
 
 def node_environment() -> dict[str, str]:
