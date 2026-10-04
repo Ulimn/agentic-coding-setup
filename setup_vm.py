@@ -27,6 +27,8 @@ TOOLS = (
     "GitHub CLI",
     "GitLab CLI",
     "Forgejo CLI",
+    "Docker with Compose",
+    "Node Tools",
 )
 
 
@@ -198,7 +200,8 @@ def build_plan(answers: SetupAnswers) -> SetupPlan:
 
 
 def format_plan(plan: SetupPlan) -> str:
-    lines = [format_summary(plan.answers), "\nSetup plan (current user; no sudo):"]
+    scope = "Docker uses sudo; other tools are user-local" if any(tool.method == "docker" and not tool.existing for tool in plan.tools) else "current user; no sudo"
+    lines = [format_summary(plan.answers), f"\nSetup plan ({scope}):"]
     for key, previous, desired in (
         ("user.name", plan.previous_name, plan.answers.git_name),
         ("user.email", plan.previous_email, plan.answers.git_email),

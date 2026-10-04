@@ -34,12 +34,12 @@ class QuestionnaireTests(unittest.TestCase):
         self.assertEqual(self.select("\r"), ())
 
     def test_space_toggles_and_arrows_navigate(self):
-        # Toggle the first item on and off, select Codex, then wrap to Forgejo.
+        # Toggle the first item on and off, select Codex, then wrap to Node Tools.
         keys = "  \x1b[B \x1b[A\x1b[A \r"
-        self.assertEqual(self.select(keys), ("Codex", "Forgejo CLI"))
+        self.assertEqual(self.select(keys), ("Codex", "Node Tools"))
 
     def test_all_requested_tools_can_be_selected(self):
-        self.assertEqual(self.select(" \x1b[B" * 7 + "\r"), setup_vm.TOOLS)
+        self.assertEqual(self.select(" \x1b[B" * len(setup_vm.TOOLS) + "\r"), setup_vm.TOOLS)
 
     def test_selection_cancellation(self):
         for key, error in (("\x03", KeyboardInterrupt), ("\x04", EOFError)):

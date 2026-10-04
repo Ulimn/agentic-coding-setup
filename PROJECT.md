@@ -16,6 +16,7 @@ The initial scope is:
 - Install the selected coding agent or agents.
 - Install and configure a VS Code server.
 - Install selected Git hosting CLI tools.
+- Optionally install Docker Engine with Compose and a Node development tool bundle.
 
 Additional setup tasks may be added later. The initial implementation should
 remain small and understandable, with room to add setup tasks as needed.
@@ -37,6 +38,8 @@ Ask these questions in order:
    - GitHub CLI
    - GitLab CLI
    - Forgejo CLI
+   - Docker with Compose
+   - Node Tools (Node.js, npm, pnpm, Yarn, Jest, Playwright)
 
 The tool list displays `[ ]` and `[x]` checkboxes. Arrow keys move the cursor,
 Space toggles the highlighted option, and Enter submits. Selecting no tools is
@@ -79,7 +82,8 @@ VS Code server startup remain manual.
   installed on the developer's machine as part of development or testing.
 - Prepare downloads and check prerequisites before showing the setup plan.
   Do not change Git configuration or generate keys if tool preparation fails.
-- Install selected tools for the current VM user, without sudo. Show sources
+- Install coding tools and Node Tools for the current VM user, without sudo.
+  Docker is a system-wide exception requiring sudo. Show sources
   and installation scope before confirmation. Native installer scripts are
   downloaded into temporary files and executed as subprocess argument lists.
 - Use the official native installers for Codex, Claude Code (stable channel),
@@ -118,6 +122,47 @@ VS Code server startup remain manual.
   easily spot them; use plain text when output is redirected.
 - Official source links and supported commands are listed in the README.
 
+## Docker and Node Tools
+
+- Docker uses its official signed Ubuntu APT repository (not a PPA) on Ubuntu
+  22.04, 24.04, and 26.04 VMs with systemd. Install docker-ce, docker-ce-cli,
+  containerd.io, docker-buildx-plugin, and docker-compose-plugin; enable/start
+  the Docker service and verify the CLI, both plugins, and daemon connection.
+- Show sudo/service scope in the setup plan. Refuse conflicting distribution
+  packages and differing existing repository/key files; do not remove packages
+  or overwrite unrelated repository configuration. Preserve a complete verified
+  installation, and install missing official packages on partial setups.
+- Keep Docker group membership unchanged and print sudo-based Docker commands.
+  Document the privilege implications of opting into Docker group access.
+- One Node Tools checkbox covers node, npm, pnpm, yarn, jest, and playwright.
+  Verify each existing command independently and install only missing components.
+  Existing Node.js must be at least version 22 and is never silently replaced.
+- Resolve new Node.js installs to the latest official LTS archive for the VM CPU,
+  verify SHA-256, and copy only regular Node/npm files into an owned runtime
+  directory under ~/.local/share/vm-setup/node. Publish launchers exclusively in
+  ~/.local/bin. Do not extract arbitrary paths or archive symlinks.
+- Install npm packages into ~/.local using an explicit registry and prefix;
+  use Corepack for current Yarn. Do not create a project, rewrite package.json,
+  or change saved npm prefix configuration. Verify all six commands afterward.
+- Playwright browser downloads and OS libraries remain an explicit manual step
+  (`playwright install --with-deps`); only its test CLI is installed by setup.
+- Implementation: environment_installers.py handles these two options, with
+  preparation, descriptions and execution integrated into tool_installers.py.
+  Docker's real service setup must be tested in a VM; Node Tools supports the
+  disposable Ubuntu container.
+- Validation: all 63 automated tests pass locally and in the final Ubuntu
+  container build. They cover existing and partial bundles, older Node
+  versions, LTS/CPU/checksum selection, safe Node archive handling, package
+  failures, Corepack commands, Docker package conflicts, repository preservation,
+  privilege/service scope, and successful/failed privileged command sequences.
+  Real Node Tools installation passed on Ubuntu 26.04.1 ARM64: Node 24.21.0,
+  npm 11.19.0, pnpm 12.9.1, Yarn 4.18.1, Jest 30.5.2, and Playwright 1.63.0.
+  A real Jest test passed. Full reruns preserved all six commands, and restoring
+  a missing Playwright launcher preserved the other five. The official Docker
+  Resolute repository metadata and signing key were checked over HTTPS.
+  Docker package installation/service startup is mocked in tests and remains
+  unverified on a real VM. Browser downloads were not performed.
+
 ## Current implementation and runtime
 
 - Entry point: `setup_vm.py`.
@@ -136,7 +181,7 @@ VS Code server startup remain manual.
 
 - Ctrl+C and end-of-input cancel without a traceback. Before applying the plan,
   cancellation makes no changes; during execution, completed steps may remain.
-- Validation: 45 tests cover input validation, checkbox navigation, cancellation,
+- Validation: 63 tests cover input validation, checkbox navigation, cancellation,
   confirmation, Git writes and verification, reruns, and SSH key preservation,
   reuse of complete or partial Git identities, blank values and read failures,
   generation, permissions, and failures. Git tests use an isolated temporary
