@@ -1,4 +1,4 @@
-"""User-local installers for Ubuntu VMs; no authentication or services are started."""
+"""Tool installers for Ubuntu VMs; account authentication remains manual."""
 
 from dataclasses import dataclass, field
 import gzip
@@ -35,6 +35,8 @@ class ToolPlan:
     script: bytes = field(default=b"", repr=False)
     archive_url: str = ""
     checksum: str | None = None
+    packages: tuple[str, ...] = ()
+    repository: str = ""
 
 
 NATIVE_INSTALLERS = {
@@ -125,10 +127,10 @@ def ubuntu_arch() -> str:
     return architecture
 
 
-def verify_executable(executable: str) -> str:
+def verify_executable(executable: str, *, env: dict[str, str] | None = None) -> str:
     version_argument = "version" if Path(executable).name == "fj" else "--version"
     try:
-        result = subprocess.run([executable, version_argument], capture_output=True, text=True, timeout=30)
+        result = subprocess.run([executable, version_argument], capture_output=True, text=True, timeout=30, env=env)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise InstallerError(f"Could not verify {executable}: {error}") from None
     lines = result.stdout.strip().splitlines()
@@ -191,6 +193,10 @@ def prepare_tools(names: tuple[str, ...]) -> tuple[ToolPlan, ...]:
     plans = []
     for name in names:
         print(f"Checking: {name}")
+        if name in ("Docker with Compose", "Node Tools"):
+            from environment_installers import prepare_docker, prepare_node
+            plans.append(prepare_docker(arch) if name == "Docker with Compose" else prepare_node(arch))
+            continue
         if name not in NATIVE_INSTALLERS and name not in RELEASE_INSTALLERS:
             raise InstallerError(f"{name} needs its installation source configured before it can be installed.")
         if name in NATIVE_INSTALLERS:
@@ -218,6 +224,10 @@ def prepare_tools(names: tuple[str, ...]) -> tuple[ToolPlan, ...]:
 def describe_tool(plan: ToolPlan) -> str:
     if plan.existing:
         return f"  Keep {plan.name}: verified existing installation at {plan.existing}"
+    if plan.method == "docker":
+        return f"  Configure rootless Docker, Buildx and Compose from {plan.source} (sudo for packages; disable system Docker; enable/start user Docker service and boot persistence; Docker group unchanged; use Docker without sudo)."
+    if plan.method == "node":
+        return f"  Complete Node Tools: {', '.join(plan.packages)} (user-local; Node.js from nodejs.org, packages from npm registry; Yarn via Corepack; browser downloads remain manual)."
     if plan.method == "archive":
         return f"  Install {plan.name} into {local_bin()} from {plan.archive_url}"
     return f"  Install {plan.name} using its official native installer: {plan.source} (user-local)"
@@ -256,6 +266,10 @@ def install_archive(plan: ToolPlan, directory: Path) -> None:
 
 def install_tools(plans: tuple[ToolPlan, ...]) -> None:
     for plan in plans:
+        if plan.method in ("docker", "node"):
+            from environment_installers import install_docker, install_node
+            (install_docker if plan.method == "docker" else install_node)(plan)
+            continue
         path = plan.existing or find_executable(plan.executable)
         if path:
             version = verify_executable(path)
@@ -286,7 +300,7 @@ def install_tools(plans: tuple[ToolPlan, ...]) -> None:
             print(f"Installed and verified: {plan.name} ({verify_executable(path)}).")
     if plans:
         print(f"\nFor commands in your current shell, run: export PATH={shlex.quote(str(local_bin()))}:\"$PATH\"")
-        print("Manual account login:")
+        print("Manual account login and next steps:")
         for plan in plans:
             print(f"  {plan.name}: {plan.login}")
         if any(plan.name == "Codex" for plan in plans):

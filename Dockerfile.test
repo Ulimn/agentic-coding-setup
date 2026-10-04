@@ -18,7 +18,7 @@ COPY --chown=vmtest:vmtest requirements.txt ./
 RUN python3 -m venv .venv \
     && .venv/bin/python -m pip install --no-cache-dir -r requirements.txt
 
-COPY --chown=vmtest:vmtest setup_vm.py tool_installers.py ./
+COPY --chown=vmtest:vmtest setup_vm.py tool_installers.py environment_installers.py ./
 COPY --chown=vmtest:vmtest tests/ tests/
 RUN .venv/bin/python -m unittest discover -s tests -v
 
