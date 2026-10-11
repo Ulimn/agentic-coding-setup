@@ -1,4 +1,4 @@
-"""Docker's signed Ubuntu repository and a user-local Node tool bundle."""
+"""Ubuntu package bundles, rootless Docker, and user-local Node tools."""
 
 import grp
 import hashlib
@@ -23,6 +23,82 @@ DOCKER_KEY = Path("/etc/apt/keyrings/docker.asc")
 DOCKER_REPOSITORY = Path("/etc/apt/sources.list.d/docker.sources")
 NODE_COMMANDS = ("node", "npm", "pnpm", "yarn", "jest", "playwright")
 NPM_PACKAGES = {"pnpm": "pnpm", "jest": "jest", "playwright": "@playwright/test"}
+
+APT_BUNDLES = {
+    "Base dev tools": ("build-essential", "tmux", "git", "neovim", "htop", "btop",
+                       "python3", "python3-dev", "python3-pip", "python3-venv"),
+    "Java Tools": ("default-jdk", "maven", "gradle"),
+}
+VIM_ALIAS = "alias vim='nvim'"
+
+
+def inspect_bundle_packages(packages: tuple[str, ...]) -> set[str]:
+    try:
+        result = subprocess.run(
+            ["dpkg-query", "-W", "-f=${binary:Package}\t${db:Status-Status}\n", *packages],
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise InstallerError(f"Could not inspect Ubuntu packages: {error}") from None
+    if result.returncode not in (0, 1):
+        raise InstallerError(f"Could not inspect Ubuntu packages: {result.stderr.strip()}")
+    return {line.split("\t")[0].split(":")[0] for line in result.stdout.splitlines()
+            if line.endswith("\tinstalled")}
+
+
+def vim_alias_present() -> bool:
+    path = Path.home() / ".bash_aliases"
+    if not os.path.lexists(path):
+        return False
+    if path.is_symlink() or not path.is_file():
+        raise InstallerError(f"{path} is not a regular file; review it before adding the vim alias.")
+    contents = path.read_text(encoding="utf-8")
+    aliases = re.findall(r"^\s*alias\s+vim\s*=.*$", contents, re.MULTILINE)
+    if any(line.strip() != VIM_ALIAS for line in aliases):
+        raise InstallerError(f"{path} already defines a different vim alias; review it manually before rerunning.")
+    return bool(aliases)
+
+
+def prepare_apt_bundle(name: str) -> ToolPlan:
+    for command in ("apt-get", "dpkg-query"):
+        if shutil.which(command) is None:
+            raise InstallerError(f"{command} is required for {name} on Ubuntu.")
+    packages = APT_BUNDLES[name]
+    installed = inspect_bundle_packages(packages)
+    missing = tuple(package for package in packages if package not in installed)
+    alias_ready = name != "Base dev tools" or vim_alias_present()
+    if missing and shutil.which("sudo") is None:
+        raise InstallerError(f"{name} requires sudo to install Ubuntu packages.")
+    return ToolPlan(name, "", "configured Ubuntu APT repositories", "apt",
+                    "source ~/.bash_aliases (Bash vim alias)" if name == "Base dev tools"
+                    else "java -version; javac -version; mvn --version; gradle --version",
+                    packages=missing, existing="Ubuntu packages" if not missing and alias_ready else None)
+
+
+def install_apt_bundle(plan: ToolPlan) -> None:
+    packages = APT_BUNDLES[plan.name]
+    if plan.name == "Base dev tools":
+        vim_alias_present()  # Refuse conflicts before installing packages.
+    installed = inspect_bundle_packages(packages)
+    missing = tuple(package for package in packages if package not in installed)
+    if set(missing) - set(plan.packages):
+        raise InstallerError(f"{plan.name} packages changed since planning. Rerun to prepare a new plan.")
+    if missing:
+        print(f"Installing {plan.name} system packages (sudo): {', '.join(missing)}")
+        run_checked(["sudo", "-v"])
+        run_checked(["sudo", "apt-get", "update"])
+        run_checked(["sudo", "apt-get", "install", "-y", *missing])
+    if not set(packages) <= inspect_bundle_packages(packages):
+        raise InstallerError(f"{plan.name} package verification failed. Check APT output and rerun.")
+    if plan.name == "Base dev tools" and not vim_alias_present():
+        # Append rather than rewriting unrelated user shell configuration.
+        with (Path.home() / ".bash_aliases").open("a", encoding="utf-8") as aliases:
+            aliases.write(f"\n# Agentic Coding VM Setup: Neovim shortcut\n{VIM_ALIAS}\n")
+        if not vim_alias_present():
+            raise InstallerError("The Bash vim alias could not be verified.")
+        print("Added Bash alias: vim -> nvim. Run: source ~/.bash_aliases")
+    action = "Installed and verified" if missing else "Skipped installation; verified"
+    print(f"{action}: {plan.name} Ubuntu packages.")
 
 
 def run_checked(command: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -346,7 +422,7 @@ def install_node_runtime(plan: ToolPlan, missing: tuple[str, ...]) -> None:
             shutil.rmtree(runtime)
 
 
-def install_node(plan: ToolPlan) -> None:
+def install_node_commands(plan: ToolPlan) -> None:
     missing = missing_node_commands()
     if not missing:
         print("Skipped: all six Node Tools commands are already installed and verified.")
@@ -379,4 +455,21 @@ def install_node(plan: ToolPlan) -> None:
         run_checked([corepack, "install", "--global", "yarn@stable"], env=environment)
     if missing_node_commands():
         raise InstallerError("Node Tools verification failed: one or more commands are still missing.")
-    print("Installed and verified: Node.js, npm, pnpm, Yarn, Jest and Playwright. Browser downloads remain manual.")
+    print("Installed and verified: Node.js, npm, pnpm, Yarn, Jest and Playwright.")
+
+
+
+def install_node(plan: ToolPlan) -> None:
+    install_node_commands(plan)
+    if not plan.playwright_chromium:
+        return
+    playwright = find_executable("playwright")
+    if playwright is None:
+        raise InstallerError("Playwright disappeared before Chromium installation. Rerun setup.")
+    environment = node_environment()
+    environment.pop("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD", None)
+    print("Installing Playwright Chromium for the current user and its Ubuntu libraries (sudo).")
+    run_checked([playwright, "install", "--with-deps", "chromium"], env=environment)
+    run_checked([playwright, "install-deps", "--dry-run", "chromium"],
+                env=environment, capture_output=True, text=True, timeout=120)
+    print("Installed: Playwright Chromium. Verified: Chromium system dependencies.")

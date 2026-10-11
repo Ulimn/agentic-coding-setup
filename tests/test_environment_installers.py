@@ -306,3 +306,173 @@ class RootlessDockerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AptBundleTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        home = patch.object(Path, "home", return_value=self.root)
+        home.start()
+        self.addCleanup(home.stop)
+
+    def test_package_inspection_accepts_partial_and_arch_qualified_results(self):
+        result = subprocess.CompletedProcess([], 1, "git\tinstalled\npython3:arm64\tinstalled\nhtop\tnot-installed\n", "missing")
+        with patch.object(environment.subprocess, "run", return_value=result):
+            self.assertEqual(environment.inspect_bundle_packages(("git", "python3", "htop")), {"git", "python3"})
+
+    def test_package_inspection_failure_is_actionable(self):
+        with patch.object(environment.subprocess, "run", side_effect=OSError("unavailable")):
+            with self.assertRaisesRegex(installers.InstallerError, "Could not inspect"):
+                environment.inspect_bundle_packages(("git",))
+        with patch.object(environment.subprocess, "run", return_value=subprocess.CompletedProcess([], 2, "", "database broken")):
+            with self.assertRaisesRegex(installers.InstallerError, "database broken"):
+                environment.inspect_bundle_packages(("git",))
+
+    def test_partial_java_plan_installs_only_missing_packages_and_reports_sudo(self):
+        with patch.object(environment.shutil, "which", return_value="/usr/bin/tool"), patch.object(environment, "inspect_bundle_packages", return_value={"default-jdk"}):
+            plan = environment.prepare_apt_bundle("Java Tools")
+        self.assertEqual(plan.packages, ("maven", "gradle"))
+        self.assertIn("sudo required", installers.describe_tool(plan))
+        self.assertIsNone(plan.existing)
+
+    def test_complete_bundle_and_alias_need_no_sudo_or_writes(self):
+        alias_file = self.root / ".bash_aliases"
+        alias_file.write_text(environment.VIM_ALIAS + "\n", encoding="utf-8")
+        before = alias_file.read_bytes()
+        packages = set(environment.APT_BUNDLES["Base dev tools"])
+        with patch.object(environment.shutil, "which", side_effect=lambda name: None if name == "sudo" else name), patch.object(environment, "inspect_bundle_packages", return_value=packages), patch.object(environment, "run_checked") as run:
+            plan = environment.prepare_apt_bundle("Base dev tools")
+            environment.install_apt_bundle(plan)
+        self.assertIsNotNone(plan.existing)
+        run.assert_not_called()
+        self.assertEqual(alias_file.read_bytes(), before)
+
+    def test_base_alias_preserves_content_and_is_not_duplicated(self):
+        alias_file = self.root / ".bash_aliases"
+        alias_file.write_text("alias ll='ls -l'", encoding="utf-8")
+        packages = set(environment.APT_BUNDLES["Base dev tools"])
+        with patch.object(environment.shutil, "which", return_value="tool"), patch.object(environment, "inspect_bundle_packages", return_value=packages), patch.object(environment, "run_checked") as run:
+            plan = environment.prepare_apt_bundle("Base dev tools")
+            self.assertIsNone(plan.existing)
+            self.assertEqual(plan.packages, ())
+            environment.install_apt_bundle(plan)
+            environment.install_apt_bundle(plan)
+        contents = alias_file.read_text(encoding="utf-8")
+        self.assertTrue(contents.startswith("alias ll='ls -l'\n"))
+        self.assertEqual(contents.count(environment.VIM_ALIAS), 1)
+        run.assert_not_called()
+
+    def test_conflicting_alias_and_symlink_are_preserved(self):
+        alias_file = self.root / ".bash_aliases"
+        alias_file.write_text("alias vim='other-editor'\n", encoding="utf-8")
+        with self.assertRaisesRegex(installers.InstallerError, "different vim alias"):
+            environment.vim_alias_present()
+        alias_file.unlink()
+        target = self.root / "other"
+        target.write_text("keep", encoding="utf-8")
+        alias_file.symlink_to(target)
+        with self.assertRaisesRegex(installers.InstallerError, "regular file"):
+            environment.vim_alias_present()
+        self.assertEqual(target.read_text(encoding="utf-8"), "keep")
+
+    def test_install_sequence_and_post_install_verification(self):
+        plan = installers.ToolPlan("Java Tools", "", "Ubuntu", "apt", "", packages=("maven", "gradle"))
+        with patch.object(environment, "inspect_bundle_packages", side_effect=[{"default-jdk"}, set(environment.APT_BUNDLES[plan.name])]), patch.object(environment, "run_checked") as run:
+            environment.install_apt_bundle(plan)
+        self.assertEqual([call.args[0] for call in run.call_args_list], [
+            ["sudo", "-v"], ["sudo", "apt-get", "update"],
+            ["sudo", "apt-get", "install", "-y", "maven", "gradle"],
+        ])
+
+    def test_failed_install_does_not_add_alias(self):
+        plan = installers.ToolPlan("Base dev tools", "", "Ubuntu", "apt", "", packages=environment.APT_BUNDLES["Base dev tools"])
+        with patch.object(environment, "inspect_bundle_packages", return_value=set()), patch.object(environment, "run_checked", side_effect=[None, None, installers.InstallerError("apt failed")]):
+            with self.assertRaisesRegex(installers.InstallerError, "apt failed"):
+                environment.install_apt_bundle(plan)
+        self.assertFalse((self.root / ".bash_aliases").exists())
+
+    def test_unfulfilled_install_and_state_change_are_reported(self):
+        plan = installers.ToolPlan("Java Tools", "", "Ubuntu", "apt", "", packages=("maven", "gradle"))
+        with patch.object(environment, "inspect_bundle_packages", return_value={"default-jdk"}), patch.object(environment, "run_checked"):
+            with self.assertRaisesRegex(installers.InstallerError, "verification failed"):
+                environment.install_apt_bundle(plan)
+        with patch.object(environment, "inspect_bundle_packages", return_value=set()), patch.object(environment, "run_checked") as run:
+            with self.assertRaisesRegex(installers.InstallerError, "changed since planning"):
+                environment.install_apt_bundle(plan)
+        run.assert_not_called()
+
+    def test_menu_and_dispatch_include_both_bundles(self):
+        names = ("Base dev tools", "Java Tools")
+        self.assertTrue(set(names) <= set(setup_vm.TOOLS))
+        with patch.object(installers, "ubuntu_arch", return_value="amd64"), patch.object(environment, "prepare_apt_bundle", side_effect=lambda name: installers.ToolPlan(name, "", "Ubuntu", "apt", "")) as prepare:
+            plans = installers.prepare_tools(names)
+        self.assertEqual([call.args[0] for call in prepare.call_args_list], list(names))
+        with patch.object(environment, "install_apt_bundle") as install, contextlib.redirect_stdout(io.StringIO()):
+            installers.install_tools(plans)
+        self.assertEqual([call.args[0].name for call in install.call_args_list], list(names))
+
+
+class PlaywrightChromiumTests(unittest.TestCase):
+    def test_plan_keeps_existing_node_commands_but_includes_chromium_and_sudo(self):
+        tool = installers.ToolPlan("Node Tools", "node", "nodejs.org", "node", "", existing="/test/node")
+        answers = setup_vm.SetupAnswers("Alice", "a@b", False, ("Node Tools",), True)
+        with patch.object(setup_vm, "require_program"), patch.object(setup_vm, "read_git_values", return_value=()), patch.object(setup_vm.shutil, "which", return_value="/usr/bin/sudo"), patch.object(setup_vm, "prepare_tools", return_value=(tool,)):
+            plan = setup_vm.build_plan(answers)
+        self.assertTrue(plan.tools[0].playwright_chromium)
+        self.assertIsNone(plan.tools[0].existing)
+        text = setup_vm.format_plan(plan)
+        self.assertIn("Playwright Chromium and system dependencies: Yes", text)
+        self.assertIn("keep all six installed commands", text)
+        self.assertIn("--with-deps chromium", text)
+        self.assertIn("sudo required", text)
+
+    def test_missing_sudo_and_node_selection_stop_planning(self):
+        for names, message in ((("Node Tools",), "require sudo"), ((), "requires selecting Node Tools")):
+            answers = setup_vm.SetupAnswers("Alice", "a@b", False, names, True)
+            with self.subTest(names=names), patch.object(setup_vm, "require_program"), patch.object(setup_vm.shutil, "which", return_value=None), patch.object(setup_vm, "prepare_tools") as prepare:
+                with self.assertRaisesRegex(setup_vm.SetupError, message):
+                    setup_vm.build_plan(answers)
+            prepare.assert_not_called()
+
+    def test_opt_out_runs_no_browser_commands(self):
+        plan = installers.ToolPlan("Node Tools", "node", "", "node", "")
+        with patch.object(environment, "install_node_commands") as install, patch.object(environment, "run_checked") as run:
+            environment.install_node(plan)
+        install.assert_called_once_with(plan)
+        run.assert_not_called()
+
+    def test_opt_in_runs_after_existing_cli_check_with_downloads_enabled(self):
+        plan = installers.ToolPlan("Node Tools", "node", "", "node", "", playwright_chromium=True)
+        with patch.object(environment, "missing_node_commands", return_value=()), patch.object(environment, "find_executable", return_value="/test/playwright"), patch.object(environment, "run_checked") as run, contextlib.redirect_stdout(io.StringIO()):
+            environment.install_node(plan)
+        self.assertEqual([call.args[0] for call in run.call_args_list], [
+            ["/test/playwright", "install", "--with-deps", "chromium"],
+            ["/test/playwright", "install-deps", "--dry-run", "chromium"],
+        ])
+        self.assertNotIn("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD", run.call_args_list[0].kwargs["env"])
+        self.assertTrue(run.call_args_list[0].kwargs["env"]["PATH"].startswith(str(installers.local_bin())))
+
+    def test_cli_failure_prevents_browser_install(self):
+        plan = installers.ToolPlan("Node Tools", "node", "", "node", "", playwright_chromium=True)
+        with patch.object(environment, "install_node_commands", side_effect=installers.InstallerError("CLI failed")), patch.object(environment, "run_checked") as run:
+            with self.assertRaisesRegex(installers.InstallerError, "CLI failed"):
+                environment.install_node(plan)
+        run.assert_not_called()
+
+    def test_browser_install_or_dependency_verification_failures_are_not_success(self):
+        plan = installers.ToolPlan("Node Tools", "node", "", "node", "", playwright_chromium=True)
+        for results in ([installers.InstallerError("install failed")], [None, installers.InstallerError("verification failed")]):
+            output = io.StringIO()
+            with self.subTest(results=results), patch.object(environment, "install_node_commands"), patch.object(environment, "find_executable", return_value="/test/playwright"), patch.object(environment, "run_checked", side_effect=results), contextlib.redirect_stdout(output):
+                with self.assertRaises(installers.InstallerError):
+                    environment.install_node(plan)
+            self.assertNotIn("Installed: Playwright Chromium", output.getvalue())
+
+    def test_missing_cli_is_actionable(self):
+        plan = installers.ToolPlan("Node Tools", "node", "", "node", "", playwright_chromium=True)
+        with patch.object(environment, "install_node_commands"), patch.object(environment, "find_executable", return_value=None), patch.object(environment, "run_checked") as run:
+            with self.assertRaisesRegex(installers.InstallerError, "Playwright disappeared"):
+                environment.install_node(plan)
+        run.assert_not_called()
