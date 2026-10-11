@@ -155,8 +155,9 @@ VS Code server startup remain manual.
   sudo command order, failed installs and verification, changed package state,
   alias preservation/conflicts/symlinks/reruns, and menu/installer dispatch.
   Pylint and all 85 unit tests pass on Python 3.10 and 3.14.
-  No system packages were installed on the developer's machine; real APT bundle
-  installation still needs validation on the target VM.
+  No system packages were installed on the developer's machine. The user
+  confirmed that this branch works on their VM after the defaults change;
+  individual bundle outputs and Chromium browser-launch results were not provided.
 
 ## Docker and Node Tools
 
@@ -367,8 +368,7 @@ VS Code server startup remain manual.
   Base dev tools starts selected and can be deselected with Space; all other
   tool checkboxes start unchecked.
   Validation: pre-selection/deselection, explicit Yes/No, blank and whitespace
-  responses, SSH defaults and
-  Chromium defaults/opt-out are covered; all 95 tests pass on Python 3.10 and
+  responses, SSH defaults and Chromium defaults/opt-out are covered; all 95 tests pass on Python 3.10 and
   3.14, and Pylint passes.
 - Allow users to skip optional setup components.
 - Validate inputs before executing dependent commands.
