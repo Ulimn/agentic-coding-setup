@@ -31,6 +31,7 @@ TOOLS = (
     "Docker with Compose",
     "Node Tools",
     "Java Tools",
+    "Tailscale",
 )
 
 
@@ -226,6 +227,8 @@ def format_plan(plan: SetupPlan) -> str:
     scope = "Docker uses sudo; other tools are user-local" if any(tool.method == "docker" and not tool.existing for tool in plan.tools) else "current user; no sudo"
     if any(tool.method == "apt" and tool.packages for tool in plan.tools):
         scope = "system package bundles use sudo; Git/SSH and coding tools run as current user"
+    if any(tool.method == "tailscale" and not tool.existing for tool in plan.tools):
+        scope = "system packages and services use sudo; Git/SSH and coding tools run as current user"
     if any(tool.playwright_chromium for tool in plan.tools):
         scope = "system packages and Playwright Chromium dependencies use sudo; coding tools are user-local"
     lines = [format_summary(plan.answers), f"\nSetup plan ({scope}):"]

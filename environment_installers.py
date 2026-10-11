@@ -9,6 +9,7 @@ import platform
 import pwd
 import re
 import shutil
+import stat
 import subprocess
 import tarfile
 import tempfile
@@ -30,6 +31,10 @@ APT_BUNDLES = {
     "Java Tools": ("default-jdk", "maven", "gradle"),
 }
 VIM_ALIAS = "alias vim='nvim'"
+TAILSCALE_EXECUTABLES = {"tailscale": "/usr/bin/tailscale", "tailscaled": "/usr/sbin/tailscaled"}
+TAILSCALE_SOURCE = "https://pkgs.tailscale.com/stable/ubuntu"
+TAILSCALE_KEY = Path("/usr/share/keyrings/tailscale-archive-keyring.gpg")
+TAILSCALE_REPOSITORY = Path("/etc/apt/sources.list.d/tailscale.list")
 
 
 def inspect_bundle_packages(packages: tuple[str, ...]) -> set[str]:
@@ -131,9 +136,9 @@ def docker_versions() -> None:
             raise InstallerError(f"Docker {plugin} did not report a version.")
 
 
-def check_repository_file(path: Path, expected: bytes) -> None:
+def check_repository_file(path: Path, expected: bytes, source: str = "Docker") -> None:
     if os.path.lexists(path) and (path.is_symlink() or not path.is_file() or path.read_bytes() != expected):
-        raise InstallerError(f"{path} already exists with different contents; it will not be overwritten. Review Docker's official repository setup before rerunning.")
+        raise InstallerError(f"{path} already exists with different contents; it will not be overwritten. Review {source}'s official repository setup before rerunning.")
 
 
 def docker_user() -> str:
@@ -473,3 +478,133 @@ def install_node(plan: ToolPlan) -> None:
     run_checked([playwright, "install-deps", "--dry-run", "chromium"],
                 env=environment, capture_output=True, text=True, timeout=120)
     print("Installed: Playwright Chromium. Verified: Chromium system dependencies.")
+
+
+def tailscale_prerequisites() -> str:
+    if os.getuid() == 0:
+        raise InstallerError("Run Tailscale setup as your normal VM user; package/service changes use sudo.")
+    release = platform.freedesktop_os_release()
+    codename = release.get("UBUNTU_CODENAME") or release.get("VERSION_CODENAME", "")
+    versions = {"22.04": "jammy", "24.04": "noble", "26.04": "resolute"}
+    if release.get("ID") != "ubuntu" or versions.get(release.get("VERSION_ID")) != codename:
+        raise InstallerError("Tailscale setup supports Ubuntu 22.04, 24.04 and 26.04 only; no repository substitution is performed.")
+    for command in ("dpkg-query", "apt-get", "systemctl"):
+        if shutil.which(command) is None:
+            raise InstallerError(f"{command} is required for Tailscale setup.")
+    if not Path("/run/systemd/system").is_dir():
+        raise InstallerError("Tailscale setup requires a VM running systemd, not the disposable test container.")
+    try:
+        has_tun = stat.S_ISCHR(Path("/dev/net/tun").stat().st_mode)
+    except OSError:
+        has_tun = False
+    if not has_tun:
+        raise InstallerError("Tailscale requires /dev/net/tun. Check VM support and run sudo modprobe tun, then rerun setup.")
+    return codename
+
+
+def tailscale_package_present() -> bool:
+    installed = "tailscale" in inspect_bundle_packages(("tailscale",))
+    for command, expected in TAILSCALE_EXECUTABLES.items():
+        path = find_executable(command)
+        if path and (not installed or Path(path) != Path(expected)):
+            raise InstallerError(f"Existing {command} at {path} needs manual review; setup will not replace a custom Tailscale installation.")
+    if installed:
+        tailscale_version()
+    return installed
+
+
+def tailscale_version() -> str:
+    for executable in TAILSCALE_EXECUTABLES.values():
+        path = Path(executable)
+        if path.is_symlink() or not path.is_file() or not os.access(path, os.X_OK):
+            raise InstallerError(f"{path} is missing or not executable. Repair the existing Tailscale package manually.")
+    result = run_checked(["/usr/bin/tailscale", "version"], capture_output=True, text=True, timeout=30)
+    version = result.stdout.splitlines()[0].strip() if result.stdout.strip() else ""
+    if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][\w.-]+)?", version):
+        raise InstallerError("Tailscale did not report a valid version. Review the existing installation.")
+    return version
+
+
+def tailscale_service_ready() -> bool:
+    load = run_checked(["systemctl", "show", "tailscaled.service", "--property=LoadState", "--value"],
+                       capture_output=True, text=True, timeout=30).stdout.strip()
+    if load == "not-found":
+        return False
+    if load != "loaded":
+        raise InstallerError(f"tailscaled.service has load state {load!r}. Review it manually before rerunning.")
+    states = []
+    for operation in ("is-active", "is-enabled"):
+        try:
+            result = subprocess.run(["systemctl", operation, "tailscaled.service"],
+                                    capture_output=True, text=True, timeout=30, check=False)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise InstallerError(f"Could not inspect tailscaled.service: {error}") from None
+        state = result.stdout.strip()
+        if "masked" in state:
+            raise InstallerError("tailscaled.service is masked. Review and unmask it manually before rerunning.")
+        if result.returncode not in (0, 1, 3, 4) or state not in (
+                "active", "inactive", "failed", "activating", "deactivating", "reloading",
+                "enabled", "enabled-runtime", "disabled", "static", "indirect", "not-found"):
+            raise InstallerError(f"Could not inspect tailscaled.service ({operation}): {result.stderr.strip() or state}")
+        states.append((result.returncode, state))
+    return states == [(0, "active"), (0, "enabled")]
+
+
+def prepare_tailscale() -> ToolPlan:
+    codename = tailscale_prerequisites()
+    installed = tailscale_package_present()
+    ready = tailscale_service_ready()
+    source = f"{TAILSCALE_SOURCE}/{codename}"
+    key = fetch_bytes(f"{source}.noarmor.gpg")
+    # HTTPS supplies the upstream key; APT verifies signed package metadata.
+    if len(key) < 100 or key[0] not in (0x99, 0xC6):
+        raise InstallerError("Tailscale's official signing key did not return binary OpenPGP data.")
+    try:
+        repository = fetch_bytes(f"{source}.tailscale-keyring.list").decode("utf-8")
+    except UnicodeError:
+        raise InstallerError("Tailscale's official repository list is not valid UTF-8.") from None
+    entries = [line.strip() for line in repository.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    expected = f"deb [signed-by={TAILSCALE_KEY}] {TAILSCALE_SOURCE} {codename} main"
+    if entries != [expected]:
+        raise InstallerError("Tailscale's repository list differs from the expected signed stable Ubuntu source. Review upstream instructions.")
+    check_repository_file(TAILSCALE_KEY, key, "Tailscale")
+    check_repository_file(TAILSCALE_REPOSITORY, repository.encode(), "Tailscale")
+    if not (installed and ready) and shutil.which("sudo") is None:
+        raise InstallerError("Tailscale setup requires sudo for packages and the system service.")
+    return ToolPlan("Tailscale", "tailscale", source, "tailscale",
+                    "sudo tailscale up (open the printed browser URL); then tailscale status and tailscale ip",
+                    existing="/usr/bin/tailscale" if installed and ready else None,
+                    script=key, repository=repository, packages=() if installed else ("tailscale",))
+
+
+def install_tailscale(plan: ToolPlan) -> None:
+    codename = tailscale_prerequisites()
+    if plan.source != f"{TAILSCALE_SOURCE}/{codename}":
+        raise InstallerError("Ubuntu release changed since planning; rerun setup to prepare the right Tailscale source.")
+    check_repository_file(TAILSCALE_KEY, plan.script, "Tailscale")
+    check_repository_file(TAILSCALE_REPOSITORY, plan.repository.encode(), "Tailscale")
+    installed = tailscale_package_present()
+    ready = tailscale_service_ready()
+    if installed and ready:
+        print("Skipped: Tailscale and its active/enabled service are verified; existing login and preferences were preserved.")
+        return
+    if plan.existing or (not installed and not plan.packages):
+        raise InstallerError("Tailscale state changed since planning. Rerun to prepare a new package/service plan.")
+    run_checked(["sudo", "-v"])
+    if not installed:
+        print("Installing Tailscale from its official signed stable APT repository (sudo).")
+        with tempfile.TemporaryDirectory(prefix="vm-setup-tailscale-") as directory:
+            for destination, contents in ((TAILSCALE_KEY, plan.script), (TAILSCALE_REPOSITORY, plan.repository.encode())):
+                source = Path(directory) / destination.name
+                source.write_bytes(contents)
+                source.chmod(0o644)
+                run_checked(["sudo", "install", "-m", "0755", "-d", str(destination.parent)])
+                run_checked(["sudo", "cp", "--no-clobber", "--", str(source), str(destination)])
+                check_repository_file(destination, contents, "Tailscale")
+        run_checked(["sudo", "apt-get", "update"])
+        run_checked(["sudo", "apt-get", "install", "-y", "tailscale"])
+    print("Enabling and starting tailscaled.service (sudo); tailnet login remains manual.")
+    run_checked(["sudo", "systemctl", "enable", "--now", "tailscaled.service"])
+    if not tailscale_package_present() or not tailscale_service_ready():
+        raise InstallerError("Tailscale package or active/enabled service verification failed. Check systemctl status tailscaled and rerun.")
+    print("Installed/configured and verified: Tailscale. Existing login and preferences were preserved.")
