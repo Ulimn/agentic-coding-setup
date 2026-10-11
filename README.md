@@ -29,6 +29,13 @@ Enter your Git name and email, choose whether to generate an Ed25519 SSH key,
 then select tools. Use **Up/Down** to move, **Space** to toggle checkboxes, and
 **Enter** to continue. **Ctrl+C** cancels.
 
+Base dev tools is pre-selected; press Space on it to deselect it. Other tools
+start unchecked.
+
+SSH key generation displays `[y/N]` and defaults to **No**. Optional Playwright
+Chromium and applying the setup plan display `[Y/n]` and default to **Yes**.
+Press Enter to accept the displayed default, or enter `y`/`n` explicitly.
+
 If your global Git name or email is already set, setup keeps it, skips that
 question, and prints a message showing the reused value. It asks only for
 missing or blank values, including when just one of the two is configured.
@@ -171,7 +178,7 @@ upgrade before selecting Node Tools. Jest and Playwright are installed as CLI
 conveniences; projects should also declare their test dependencies locally.
 
 When Node Tools is selected, setup asks whether to install Chromium and its
-system dependencies for Playwright (default **No**). Choosing Yes adds this
+system dependencies for Playwright (default **Yes**). Choosing Yes adds this
 [official Playwright command](https://playwright.dev/docs/browsers#install-system-dependencies)
 to the confirmed plan:
 

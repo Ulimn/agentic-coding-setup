@@ -30,7 +30,7 @@ Ask these questions in order:
 2. Git user email (required text with basic format validation only when missing
    or blank globally).
 3. Whether to generate an Ed25519 SSH key (yes/no, default no).
-4. Which tools to install (multi-select, initially all unchecked):
+4. Which tools to install (multi-select, Base dev tools pre-selected; others unchecked):
 
    - Base dev tools (build-essential, tmux, git, Neovim with vim alias, htop, btop,
      python3, python3-dev, python3-pip, python3-venv)
@@ -46,7 +46,7 @@ Ask these questions in order:
    - Java Tools (default JDK, Maven, Gradle)
 
 5. If Node Tools is selected, ask whether to install Playwright Chromium and
-   its system dependencies (yes/no, default no; explain sudo use).
+   its system dependencies (yes/no, default yes; explain sudo use).
 
 The tool list displays `[ ]` and `[x]` checkboxes. Arrow keys move the cursor,
 Space toggles the highlighted option, and Enter submits. Selecting no tools is
@@ -64,7 +64,7 @@ VS Code server startup remain manual.
 ## Git and SSH setup
 
 - Show existing global Git identity values and the proposed changes before
-  asking for confirmation. The confirmation defaults to no.
+  asking for confirmation. The confirmation defaults to yes.
 - Configure `user.name` and `user.email` globally for the current VM user.
   Preserve unrelated Git settings, skip matching values, and verify each change.
 - If requested, generate an Ed25519 SSH key at `~/.ssh/id_ed25519` with the
@@ -192,7 +192,7 @@ VS Code server startup remain manual.
   use Corepack for current Yarn. Do not create a project, rewrite package.json,
   or change saved npm prefix configuration. Verify all six commands afterward.
 - Node Tools optionally installs Chromium and its system libraries after a
-  separate default-no question. Include this choice and sudo scope in the plan.
+  separate default-yes question. Include this choice and sudo scope in the plan.
   Use the installed Playwright CLI: install --with-deps chromium, then
   install-deps --dry-run chromium to verify OS packages. Browser downloads run
   as the user; Playwright elevates the library installation. Check sudo presence
@@ -249,7 +249,7 @@ VS Code server startup remain manual.
 
 - Ctrl+C and end-of-input cancel without a traceback. Before applying the plan,
   cancellation makes no changes; during execution, completed steps may remain.
-- Validation: 94 tests cover input validation, checkbox navigation, cancellation,
+- Validation: 95 tests cover input validation, checkbox navigation, cancellation,
   confirmation, Git writes and verification, reruns, and SSH key preservation,
   reuse of complete or partial Git identities, blank values and read failures,
   generation, permissions, and failures. Git tests use an isolated temporary
@@ -361,6 +361,15 @@ VS Code server startup remain manual.
 ## User experience requirements
 
 - Use clear questions, sensible defaults, and explicit selection labels.
+- SSH key generation defaults to No and shows [y/N]. Optional Chromium and
+  applying the displayed plan default to Yes and show [Y/n]. Blank input accepts
+  the displayed default; explicit y/yes and n/no override it.
+  Base dev tools starts selected and can be deselected with Space; all other
+  tool checkboxes start unchecked.
+  Validation: pre-selection/deselection, explicit Yes/No, blank and whitespace
+  responses, SSH defaults and
+  Chromium defaults/opt-out are covered; all 95 tests pass on Python 3.10 and
+  3.14, and Pylint passes.
 - Allow users to skip optional setup components.
 - Validate inputs before executing dependent commands.
 - Explain what will change before applying the setup plan.

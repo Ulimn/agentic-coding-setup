@@ -56,15 +56,18 @@ class SetupError(Exception):
     """An actionable setup failure that should not display a traceback."""
 
 
-def ask_yes_no(message: str) -> bool:
+def ask_yes_no(message: str, *, default: bool = True) -> bool:
+    choices = "[Y/n]" if default else "[y/N]"
+    default_label = "yes" if default else "no"
     answer = prompt(
-        f"{message} [y/N]: ",
+        f"{message} {choices}: ",
         validator=Validator.from_callable(
             lambda value: value.strip().lower() in ("", "y", "yes", "n", "no"),
-            error_message="Enter y or n (Enter defaults to no).",
+            error_message=f"Enter y or n (Enter defaults to {default_label}).",
         ),
     )
-    return answer.strip().lower() in ("y", "yes")
+    value = answer.strip().lower()
+    return default if not value else value in ("y", "yes")
 
 
 def valid_name(value: str) -> bool:
@@ -81,7 +84,7 @@ def valid_email(value: str) -> bool:
 
 def select_tools() -> tuple[str, ...]:
     """Show ASCII checkboxes; arrows move, Space toggles, and Enter submits."""
-    selected: set[str] = set()
+    selected: set[str] = {"Base dev tools"}
     cursor = 0
     bindings = KeyBindings()
 
@@ -150,7 +153,7 @@ def collect_answers() -> SetupAnswers:
                 f"{label}: ",
                 validator=Validator.from_callable(validation, error_message=error_message),
             ).strip()
-    generate_key = ask_yes_no("Generate an Ed25519 SSH key?")
+    generate_key = ask_yes_no("Generate an Ed25519 SSH key?", default=False)
     tools = select_tools()
     chromium = "Node Tools" in tools and ask_yes_no(
         "Install Chromium and its system dependencies for Playwright? (uses sudo)"
