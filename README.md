@@ -55,6 +55,7 @@ steps in place; resolve the reported error and rerun.
 
 Base dev tools and Java Tools use `sudo` to install system packages.
 The optional Playwright Chromium setup also uses sudo for Ubuntu libraries.
+Tailscale uses sudo for its signed APT repository, package and system service.
 Coding tools and Node Tools are installed for the current user. Docker with
 Compose uses `sudo` for system packages, disabling system Docker, and user-service
 boot persistence. The Docker daemon runs as the current user.
@@ -77,6 +78,7 @@ failure stops subsequent steps, and rerunning resumes from existing installation
 | Docker with Compose | `docker`, `docker compose` | [Docker's signed Ubuntu APT repository](https://docs.docker.com/engine/install/ubuntu/) | `docker info` (rootless) |
 | Node Tools | `node`, `npm`, `pnpm`, `yarn`, `jest`, `playwright` | [Official Node.js LTS binaries](https://nodejs.org/en/download), npm registry, and [Yarn via Corepack](https://yarnpkg.com/getting-started/install) | Optional Chromium prompt; other browsers: `playwright install --with-deps` |
 | Java Tools | `java`, `javac`, `mvn`, `gradle` | [Ubuntu APT packages](https://ubuntu.com/server/docs/package-management/) | None |
+| Tailscale | `tailscale`, system `tailscaled` service | [Official signed stable APT repository](https://pkgs.tailscale.com/stable/) | `sudo tailscale up`, then `tailscale status` |
 
 User-local commands are installed in `~/.local/bin`; native installers also manage their
 own files and may configure shell integration. If your shell cannot find the
@@ -91,6 +93,43 @@ Add this line to your shell profile if needed for future sessions.
 Setup ends with a reminder to run `source ~/.bashrc` if you use Bash. This
 reloads any profile changes made by the installers. The PATH export above makes
 the commands available immediately even if your `.bashrc` does not include it.
+
+### Tailscale
+
+Select the optional **Tailscale** checkbox to install it on Ubuntu 22.04, 24.04
+or 26.04 (amd64/arm64). This option requires a VM running systemd with
+`/dev/net/tun` available. If the TUN device is missing, check VM support and run
+`sudo modprobe tun` before retrying. The disposable test container does not
+support this service setup.
+
+Setup downloads the release-specific key and source list from
+[Tailscale's official stable signed APT repository](https://pkgs.tailscale.com/stable/).
+After you accept the plan, it installs `tailscale` with sudo and enables/starts
+`tailscaled.service`. Repository files use
+`/usr/share/keyrings/tailscale-archive-keyring.gpg` and
+`/etc/apt/sources.list.d/tailscale.list`. Conflicting files and symlinks are
+preserved and require manual review.
+
+Reruns verify the package, `tailscale version`, and active/enabled service state.
+A complete installation is kept without upgrades or sudo commands. A stopped or
+disabled service is repaired only when included in the confirmed plan. Masked
+services, broken package binaries and custom installations require manual review.
+Existing authentication and preferences are preserved. Failures stop subsequent
+steps; resolve the reported problem and rerun.
+
+Login remains manual, following the
+[official Linux instructions](https://tailscale.com/kb/1031/install-linux):
+
+```sh
+sudo tailscale up
+# Open the displayed authentication URL in your browser.
+tailscale status
+tailscale ip
+```
+
+If the VM is already signed in, check `tailscale status` first. Setup does not
+collect auth keys or enable Tailscale SSH, routing, exit-node or public-sharing
+features. Tailnet policy determines the VM's access after login.
 
 ### Base dev tools and Java Tools
 

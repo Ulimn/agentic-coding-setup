@@ -194,6 +194,10 @@ def prepare_tools(names: tuple[str, ...]) -> tuple[ToolPlan, ...]:
     plans = []
     for name in names:
         print(f"Checking: {name}")
+        if name == "Tailscale":
+            from environment_installers import prepare_tailscale
+            plans.append(prepare_tailscale())
+            continue
         if name in ("Base dev tools", "Java Tools"):
             from environment_installers import prepare_apt_bundle
             plans.append(prepare_apt_bundle(name))
@@ -229,6 +233,9 @@ def prepare_tools(names: tuple[str, ...]) -> tuple[ToolPlan, ...]:
 def describe_tool(plan: ToolPlan) -> str:
     if plan.existing:
         return f"  Keep {plan.name}: verified existing installation at {plan.existing}"
+    if plan.method == "tailscale":
+        action = f"install tailscale from {plan.source}" if plan.packages else "keep installed Tailscale package"
+        return f"  Configure Tailscale: {action}; enable/start tailscaled.service (sudo; tailnet login remains manual)."
     if plan.method == "apt":
         packages = ", ".join(plan.packages) or "all packages already installed"
         alias = "; ensure Bash alias vim=\'nvim\' in ~/.bash_aliases" if plan.name == "Base dev tools" else ""
@@ -279,6 +286,10 @@ def install_archive(plan: ToolPlan, directory: Path) -> None:
 
 def install_tools(plans: tuple[ToolPlan, ...]) -> None:
     for plan in plans:
+        if plan.method == "tailscale":
+            from environment_installers import install_tailscale
+            install_tailscale(plan)
+            continue
         if plan.method == "apt":
             from environment_installers import install_apt_bundle
             install_apt_bundle(plan)

@@ -18,6 +18,7 @@ The initial scope is:
 - Install selected Git hosting CLI tools.
 - Optionally install Docker Engine with Compose and a Node development tool bundle.
 - Optionally install Base dev tools and Java Tools from Ubuntu APT.
+- Optionally install Tailscale for manual tailnet connection.
 
 Additional setup tasks may be added later. The initial implementation should
 remain small and understandable, with room to add setup tasks as needed.
@@ -44,6 +45,7 @@ Ask these questions in order:
    - Docker with Compose
    - Node Tools (Node.js, npm, pnpm, Yarn, Jest, Playwright)
    - Java Tools (default JDK, Maven, Gradle)
+   - Tailscale
 
 5. If Node Tools is selected, ask whether to install Playwright Chromium and
    its system dependencies (yes/no, default yes; explain sudo use).
@@ -92,6 +94,7 @@ VS Code server startup remain manual.
 - Install coding tools and Node Tools CLI commands for the current VM user,
   without sudo. Optional Playwright Chromium uses sudo for Ubuntu libraries.
   Base dev tools and Java Tools use sudo for system APT packages.
+  Tailscale uses sudo for the signed APT repository, package and system service.
   Docker packages and boot persistence require sudo, while the daemon runs as the user. Show sources
   and installation scope before confirmation. Native installer scripts are
   downloaded into temporary files and executed as subprocess argument lists.
@@ -131,6 +134,51 @@ VS Code server startup remain manual.
   Give these instructions a separate bold red terminal heading so users can
   easily spot them; use plain text when output is redirected.
 - Official source links and supported commands are listed in the README.
+
+## Tailscale installation
+
+- Status: scope confirmed by the user and implemented on feat/tailscale after
+  updating main to PR #4 merge ba95e9c.
+- One optional Tailscale checkbox, initially unchecked. Keep Base dev tools
+  pre-selected and retain current SSH/Chromium/confirmation defaults.
+- Initial target: Ubuntu 22.04, 24.04 and 26.04, amd64/arm64 VMs running systemd
+  with the TUN device available. Match jammy/noble/resolute explicitly; refuse
+  other releases instead of substituting a different repository.
+- Use the official stable signed APT repository at pkgs.tailscale.com.
+  Official instructions were checked on 2026-10-11:
+  https://tailscale.com/kb/1031/install-linux and
+  https://pkgs.tailscale.com/stable/. For each supported Ubuntu codename, obtain
+  its .noarmor.gpg key and .tailscale-keyring.list over HTTPS. Use the upstream
+  paths /usr/share/keyrings/tailscale-archive-keyring.gpg and
+  /etc/apt/sources.list.d/tailscale.list. Download/inspect metadata during
+  preparation; no repository changes before the displayed plan is accepted.
+- Show sudo and service scope in the plan. Install the tailscale package and
+  enable/start tailscaled via systemd. Verify package status, tailscale version,
+  and active/enabled daemon state. Preparation/execution functions in
+  environment_installers.py integrate with the existing tool-plan dispatch.
+- Preserve working existing installations, authentication state and preferences;
+  do not upgrade a verified installed package. Repair only an explicitly planned
+  stopped/disabled service. Refuse differing repository/key files, symlinks or
+  unsupported/custom installations needing manual review rather than overwrite.
+- Keep tailnet login manual. Print sudo tailscale up and explain its browser URL,
+  then tailscale status / tailscale ip for checking the connection. Do not collect
+  auth keys, invoke login, reset preferences, enable Tailscale SSH, advertise
+  routes/exit nodes or expose services through Serve/Funnel during setup.
+  Joining a tailnet gives the VM network access according to its tailnet policy;
+  that access is part of the VM's agent containment configuration.
+- Mocked tests cover OS/source selection, prerequisites, existing/partial state,
+  repository preservation, sudo/service commands, failure handling, verification,
+  and manual-login output. Run Pylint and the full unittest suite.
+- Validation: the official signing keys and repository lists were fetched and
+  inspected for all three Ubuntu codenames without installing software. Mocked
+  tests cover new/existing installs, partial service state, missing sudo, source
+  validation, conflicts and symlinks, changed state, failures, OS/systemd/TUN
+  prerequisites, custom installs, version checks and manual-login output.
+  Pylint and all 114 tests pass on Python 3.14.8. Local Python 3.10 validation
+  could not run because the temporary interpreter download timed out; the CI
+  workflow remains configured for both versions. On 2026-10-12 the user confirmed
+  that the Tailscale setup works on their VM. Exact OS version, service outputs,
+  tailnet login and connectivity details were not supplied.
 
 ## Base dev tools and Java Tools
 
@@ -250,7 +298,7 @@ VS Code server startup remain manual.
 
 - Ctrl+C and end-of-input cancel without a traceback. Before applying the plan,
   cancellation makes no changes; during execution, completed steps may remain.
-- Validation: 95 tests cover input validation, checkbox navigation, cancellation,
+- Validation: 114 tests cover input validation, checkbox navigation, cancellation,
   confirmation, Git writes and verification, reruns, and SSH key preservation,
   reuse of complete or partial Git identities, blank values and read failures,
   generation, permissions, and failures. Git tests use an isolated temporary
