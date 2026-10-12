@@ -168,8 +168,7 @@ VS Code server startup remain manual.
   that access is part of the VM's agent containment configuration.
 - Mocked tests cover OS/source selection, prerequisites, existing/partial state,
   repository preservation, sudo/service commands, failure handling, verification,
-  and manual-login output. Run Pylint and the full unittest suite. Real daemon
-  connectivity and browser login require testing on the target VM.
+  and manual-login output. Run Pylint and the full unittest suite.
 - Validation: the official signing keys and repository lists were fetched and
   inspected for all three Ubuntu codenames without installing software. Mocked
   tests cover new/existing installs, partial service state, missing sudo, source
@@ -177,8 +176,9 @@ VS Code server startup remain manual.
   prerequisites, custom installs, version checks and manual-login output.
   Pylint and all 114 tests pass on Python 3.14.8. Local Python 3.10 validation
   could not run because the temporary interpreter download timed out; the CI
-  workflow remains configured for both versions. Real service installation,
-  connectivity and login still need target VM testing.
+  workflow remains configured for both versions. On 2026-10-12 the user confirmed
+  that the Tailscale setup works on their VM. Exact OS version, service outputs,
+  tailnet login and connectivity details were not supplied.
 
 ## Base dev tools and Java Tools
 
