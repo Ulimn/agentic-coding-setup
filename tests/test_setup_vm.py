@@ -47,6 +47,11 @@ class QuestionnaireTests(unittest.TestCase):
         keys = " \x1b[B \x1b[A\x1b[A \r"
         self.assertEqual(self.select(keys), (setup_vm.TOOLS[1], setup_vm.TOOLS[-1]))
 
+    def test_herdr_is_independently_selectable_and_unchecked_by_default(self):
+        self.assertNotIn("Herdr", self.select("\r"))
+        keys = " " + "\x1b[B" * setup_vm.TOOLS.index("Herdr") + " \r"
+        self.assertEqual(self.select(keys), ("Herdr",))
+
     def test_all_requested_tools_can_be_selected(self):
         self.assertEqual(self.select("\x1b[B" + " \x1b[B" * (len(setup_vm.TOOLS) - 1) + "\r"), setup_vm.TOOLS)
 

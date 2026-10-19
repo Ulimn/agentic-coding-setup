@@ -73,6 +73,31 @@ class InstallerTests(unittest.TestCase):
                 installers.find_executable("gh")
         self.assertEqual(target.read_text(encoding="utf-8"), "keep me")
 
+    def test_herdr_preparation_and_installation(self):
+        script = b"#!/bin/sh\n# installer fixture\n"
+        with patch.object(installers, "ubuntu_arch", return_value="arm64"), patch.object(installers, "find_executable", return_value=None), patch.object(installers.shutil, "which", return_value="/usr/bin/tool"), patch.object(installers, "fetch_bytes", return_value=script) as fetch:
+            plans = installers.prepare_tools(("Herdr",))
+        fetch.assert_called_once_with("https://herdr.dev/install.sh")
+        self.assertEqual(plans[0].script, script)
+        with patch.object(installers, "find_executable", side_effect=[None, str(self.bin / "herdr")]), patch.object(installers.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run, patch.object(installers, "verify_executable", return_value="herdr 1.0") as verify, patch.dict(installers.os.environ, {"HERDR_INSTALL_DIR": "/unrelated"}), contextlib.redirect_stdout(io.StringIO()) as output:
+            installers.install_tools(plans)
+        self.assertEqual(run.call_args.args[0][0], "sh")
+        self.assertEqual(run.call_args.kwargs["env"]["HERDR_INSTALL_DIR"], str(self.bin))
+        verify.assert_called_once_with(str(self.bin / "herdr"))
+        self.assertIn("Herdr: herdr (launch or attach", output.getvalue())
+
+    def test_existing_herdr_is_preserved_without_download(self):
+        with patch.object(installers, "ubuntu_arch", return_value="amd64"), patch.object(installers, "find_executable", return_value="/existing/herdr"), patch.object(installers, "verify_executable", return_value="herdr 1.0"), patch.object(installers, "fetch_bytes") as fetch, patch.object(installers.subprocess, "run") as run, contextlib.redirect_stdout(io.StringIO()):
+            installers.install_tools(installers.prepare_tools(("Herdr",)))
+        fetch.assert_not_called()
+        run.assert_not_called()
+
+    def test_herdr_requires_awk_before_downloading(self):
+        with patch.object(installers, "ubuntu_arch", return_value="amd64"), patch.object(installers, "find_executable", return_value=None), patch.object(installers.shutil, "which", side_effect=lambda name: None if name == "awk" else "/usr/bin/tool"), patch.object(installers, "fetch_bytes") as fetch:
+            with self.assertRaisesRegex(installers.InstallerError, "awk is required"):
+                installers.prepare_tools(("Herdr",))
+        fetch.assert_not_called()
+
     def test_http_downloads_are_rejected(self):
         with self.assertRaisesRegex(installers.InstallerError, "HTTPS"):
             installers.request("http://example.com/tool")

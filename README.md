@@ -72,6 +72,7 @@ failure stops subsequent steps, and rerunning resumes from existing installation
 | Codex | `codex` | [Official native installer](https://learn.chatgpt.com/docs/codex/cli) | `codex`, then choose device code sign-in |
 | Claude Code | `claude` | [Official native installer, stable channel](https://code.claude.com/docs/en/setup) | `claude` |
 | Antigravity-CLI | `agy` | [Google's official native installer](https://www.antigravity.google/docs/cli/install/) | `agy` |
+| Herdr | `herdr` | [Official native installer](https://herdr.dev/docs/install/) | `herdr` (launch or attach to a session) |
 | GitHub CLI | `gh` | [Official GitHub releases](https://github.com/cli/cli/releases) | `gh auth login` |
 | GitLab CLI | `glab` | [Official GitLab releases](https://gitlab.com/gitlab-org/cli/-/releases) | `glab auth login` |
 | Forgejo CLI | `fj` | [forgejo-contrib releases](https://codeberg.org/forgejo-contrib/forgejo-cli/releases) | `fj auth login` |
@@ -79,6 +80,10 @@ failure stops subsequent steps, and rerunning resumes from existing installation
 | Node Tools | `node`, `npm`, `pnpm`, `yarn`, `jest`, `playwright` | [Official Node.js LTS binaries](https://nodejs.org/en/download), npm registry, and [Yarn via Corepack](https://yarnpkg.com/getting-started/install) | Optional Chromium prompt; other browsers: `playwright install --with-deps` |
 | Java Tools | `java`, `javac`, `mvn`, `gradle` | [Ubuntu APT packages](https://ubuntu.com/server/docs/package-management/) | None |
 | Tailscale | `tailscale`, system `tailscaled` service | [Official signed stable APT repository](https://pkgs.tailscale.com/stable/) | `sudo tailscale up`, then `tailscale status` |
+
+Herdr has its own checkbox, unchecked by default. Setup installs and verifies the
+command; run `herdr` afterward to start or attach to a session. Setup does not
+launch sessions or configure agent integrations.
 
 User-local commands are installed in `~/.local/bin`; native installers also manage their
 own files and may configure shell integration. If your shell cannot find the

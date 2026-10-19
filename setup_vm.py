@@ -25,6 +25,7 @@ TOOLS = (
     "Codex",
     "Claude Code",
     "Antigravity-CLI",
+    "Herdr",
     "GitHub CLI",
     "GitLab CLI",
     "Forgejo CLI",
