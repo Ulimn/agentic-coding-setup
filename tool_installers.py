@@ -44,6 +44,7 @@ NATIVE_INSTALLERS = {
     "Codex": ("codex", "https://chatgpt.com/codex/install.sh", "sh", "codex (choose Sign in with Device Code)"),
     "Claude Code": ("claude", "https://claude.ai/install.sh", "bash", "claude"),
     "Antigravity-CLI": ("agy", "https://antigravity.google/cli/install.sh", "bash", "agy"),
+    "Herdr": ("herdr", "https://herdr.dev/install.sh", "sh", "herdr (launch or attach to a session)"),
 }
 RELEASE_INSTALLERS = {
     "Visual Studio Code Server": (
@@ -218,9 +219,12 @@ def prepare_tools(names: tuple[str, ...]) -> tuple[ToolPlan, ...]:
             verify_executable(existing)
             plans.append(ToolPlan(name, executable, source, shell, login, existing=existing))
         elif name in NATIVE_INSTALLERS:
-            for program in (shell, "curl", "tar", "sha256sum", "sha512sum"):
+            prerequisites = (shell, "curl", "tar", "sha256sum", "sha512sum")
+            if name == "Herdr":
+                prerequisites += ("awk",)
+            for program in prerequisites:
                 if shutil.which(program) is None:
-                    raise InstallerError(f"{program} is required. On Ubuntu, run: sudo apt install curl tar coreutils bash")
+                    raise InstallerError(f"{program} is required. On Ubuntu, run: sudo apt install curl tar coreutils bash mawk")
             script = fetch_bytes(source)
             if not script.startswith(b"#!/"):
                 raise InstallerError(f"{source} did not return an installer script.")
@@ -316,6 +320,8 @@ def install_tools(plans: tuple[ToolPlan, ...]) -> None:
                     environment["PATH"] = f"{local_bin()}{os.pathsep}{environment.get('PATH', '')}"
                     if plan.name == "Codex":
                         environment["CODEX_NON_INTERACTIVE"] = "1"
+                    if plan.name == "Herdr":
+                        environment["HERDR_INSTALL_DIR"] = str(local_bin())
                     command = [plan.method, str(script)]
                     if plan.name == "Claude Code":
                         command.append("stable")

@@ -39,6 +39,7 @@ Ask these questions in order:
    - Codex
    - Claude Code
    - Antigravity-CLI
+   - Herdr
    - GitHub CLI
    - GitLab CLI
    - Forgejo CLI
@@ -134,6 +135,24 @@ VS Code server startup remain manual.
   Give these instructions a separate bold red terminal heading so users can
   easily spot them; use plain text when output is redirected.
 - Official source links and supported commands are listed in the README.
+
+## Herdr installation
+
+- Add a separate Herdr checkbox, unchecked by default. Use the official
+  https://herdr.dev/install.sh native installer with `sh` on the existing Ubuntu
+  x86_64/aarch64 target. Official installation instructions and script reviewed
+  on 2026-10-19: https://herdr.dev/docs/install/.
+- Prepare the script before confirmation; require awk as well as the existing
+  native-installer prerequisites. Explicitly set HERDR_INSTALL_DIR to ~/.local/bin
+  so inherited overrides cannot change the displayed installation scope.
+- The upstream installer verifies SHA-256. Verify `herdr --version` after
+  installation and preserve verified existing installs. Print `herdr` as the
+  manual next step; do not launch sessions or configure integrations.
+- Validation: all 118 unit tests pass, including Herdr checkbox defaults,
+  selection, preparation, install-directory override, verification, existing
+  installation preservation and missing awk. Commands/downloads are mocked;
+  real Herdr installation remains untested. Whitespace checks pass. Pylint
+  could not run because it is not installed in the local virtual environment.
 
 ## Tailscale installation
 
